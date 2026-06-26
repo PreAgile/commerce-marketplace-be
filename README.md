@@ -5,7 +5,7 @@
 
 ![status](https://img.shields.io/badge/status-WIP-orange)
 ![java](https://img.shields.io/badge/Java-21-blue)
-![spring](https://img.shields.io/badge/Spring%20Boot-3.x-green)
+![spring](https://img.shields.io/badge/Spring%20Boot-4.1.x-green)
 ![license](https://img.shields.io/badge/license-MIT-lightgrey)
 
 > 🚧 **현재 단계**: 설계·문서 완료, 구현 진행 중. 각 섹션의 구현 상태를 함께 표기합니다.

@@ -1,0 +1,18 @@
+spring:
+  application:
+    name: marketplace
+  datasource:
+    url: jdbc:postgresql://localhost:5432/marketplace
+    username: app
+    password: app
+  jpa:
+    hibernate:
+      ddl-auto: validate    # 스키마는 Flyway가 소유. JPA는 검증만(임의 DDL 금지)
+    open-in-view: false
+  flyway:
+    enabled: true
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
