@@ -4,6 +4,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.lemong.marketplace.TestcontainersConfiguration;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -64,10 +68,50 @@ class PaymentConstraintsIT {
     }
 
     @Test
-    @DisplayName("중복 멱등키는 UNIQUE 제약으로 거부된다 (따닥/중복 결제 차단)")
-    void duplicateIdempotencyKeyRejected() {
-        insertPayment("idem-dup", 10_000, 0, "PAID");
-        assertThatThrownBy(() -> insertPayment("idem-dup", 20_000, 0, "PAID"))
+    @DisplayName("미결제(PENDING) 상태에 환불액이 있으면 CHECK 제약으로 거부된다")
+    void refundOnNonPaidRejected() {
+        assertThatThrownBy(() -> insertPayment("idem-4", 10_000, 1_000, "PENDING"))
                 .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    @DisplayName("정의되지 않은 결제 상태는 CHECK 제약으로 거부된다")
+    void invalidStatusRejected() {
+        assertThatThrownBy(() -> insertPayment("idem-5", 10_000, 0, "INVALID"))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    @DisplayName("동시 따닥: 같은 멱등키로 16스레드가 동시 INSERT해도 단 1건만 성공한다")
+    void concurrentDuplicateIdempotencyOnlyOneSucceeds() throws InterruptedException {
+        int threads = 16;
+        CountDownLatch start = new CountDownLatch(1);
+        CountDownLatch done = new CountDownLatch(threads);
+        AtomicInteger success = new AtomicInteger();
+        AtomicInteger conflicts = new AtomicInteger();
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+
+        for (int i = 0; i < threads; i++) {
+            pool.submit(() -> {
+                try {
+                    start.await();                 // 모든 스레드 동시 출발
+                    insertPayment("idem-race", 10_000, 0, "PAID");
+                    success.incrementAndGet();
+                } catch (DataIntegrityViolationException e) {
+                    conflicts.incrementAndGet();   // UNIQUE 충돌 = 기대된 실패
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                } finally {
+                    done.countDown();
+                }
+            });
+        }
+        start.countDown();
+        done.await();
+        pool.shutdown();
+
+        // DB UNIQUE 제약이 진짜 따닥 경합에서도 정확히 1건만 통과시킨다
+        assertThat(success.get()).isEqualTo(1);
+        assertThat(conflicts.get()).isEqualTo(threads - 1);
     }
 }
