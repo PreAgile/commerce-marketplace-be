@@ -1,0 +1,81 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# CodeRabbit 설정 — 커머스 마켓플레이스 백엔드. 도메인 불변식·작업 규칙은 AGENTS.md와 일치.
+# 리뷰는 한국어(존댓말). 레포 규칙 상세는 AGENTS.md / docs/ai-collaboration 참조.
+
+language: "ko-KR"
+early_access: false
+
+tone_instructions: >-
+  커머스 마켓플레이스 백엔드의 깐깐한 시니어 리뷰어. 반드시 한국어 존댓말로, 칭찬·아부 없이
+  근거 있는 지적만 간결하게. 우선순위: 정확성·도메인 불변식 → 동시성/race → 보안·정합성 → 단순화.
+  "그럴듯하지만 검증 안 된" 코드는 명시적으로 지적하고 테스트·DB 제약으로 증명을 요구.
+
+reviews:
+  profile: "assertive"              # 더 깐깐하게(결함·정합성 위주)
+  request_changes_workflow: true    # 지적이 해소될 때까지 게이트
+  high_level_summary: true
+  poem: false                       # 포트폴리오 — 시(詩) 요약 끔
+  review_status: true
+  collapse_walkthrough: false
+
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - "main"
+
+  # 빌드 산출물·래퍼는 리뷰 제외 (문서·소스는 리뷰 대상 유지)
+  path_filters:
+    - "!**/build/**"
+    - "!**/.gradle/**"
+    - "!**/gradle/wrapper/**"
+    - "!**/*.lockfile"
+
+  # 도메인·경로별 리뷰 지침 (AGENTS.md 규칙을 코드 리뷰로 강제)
+  path_instructions:
+    - path: "**/*.java"
+      instructions: >-
+        DDD 경계를 점검하세요. 다른 Bounded Context의 내부 엔티티·테이블을 직접 참조하지 말 것
+        (컨텍스트 간은 이벤트 또는 id 참조만). 도메인 불변식이 if문이 아니라 타입·값객체·DB 제약으로
+        강제됐는지 확인하세요.
+
+    - path: "**/settlement/**"
+      instructions: >-
+        정산 도메인입니다. (1) 원장은 부호 있는 append-only여야 하며 잔액 컬럼 직접 UPDATE 금지
+        (잔액은 SUM으로 도출). (2) "정산 총액 보존(Σ셀러 정산 + 수수료 = 주문 총액)"과
+        "0 ≤ 누적환불 ≤ 결제금액" 불변식이 깨질 여지가 있는지 검토. (3) 환불(REFUND)이 매출(SALE)보다
+        먼저 적재돼도 SUM이 정확한지(교환법칙), 음수 지급은 payout 게이트(net≥0 AND CONFIRMED)로
+        막히는지 확인. (4) 대사(reconciliation)는 drift를 상태(EXPECTED/IN_TRANSIT/SETTLED/BREAK)로
+        분해하고 BREAK에만 알람하는지, "drift≠0=알람"으로 단순화하지 않았는지 점검.
+
+    - path: "**/payment/**"
+      instructions: >-
+        결제 도메인입니다. (1) 멱등키(idempotency_key)가 UNIQUE로 따닥/중복 결제를 막는지,
+        외부 PG에도 멱등키를 end-to-end로 전달하는지. (2) 결제 확정과 outbox INSERT가 같은
+        트랜잭션인지(dual-write를 한 TX로 원자화). (3) 상태 전이가 단조(역전이 금지)인지 확인하세요.
+
+    - path: "**/{order,shipping}/**"
+      instructions: >-
+        주문·배송 도메인입니다. 상태 전이가 상태머신으로 가드되는지, 이벤트는 at-least-once 가정 하에
+        멱등(source_event_id)인지, 늦게 도착한 이벤트(PAID 이전 REFUNDED 등 역전)를 안전하게
+        처리하는지 검토하세요. over-ship/oversell은 조건부 원자 UPDATE(0행=거부)로 막는지 확인.
+
+    - path: "**/{common,outbox,messaging}/**"
+      instructions: >-
+        outbox·공통 인프라입니다. 발행 마킹·미발행 재발행 스윕·poison 메시지 격리가 있는지,
+        중복 발행 시 소비자가 멱등으로 흡수(23505 swallow + ack)하는지 확인하세요.
+
+    - path: "**/db/migration/**"
+      instructions: >-
+        Flyway 마이그레이션입니다. (1) 기존 마이그레이션 수정 금지 — 새 파일만 추가됐는지.
+        (2) 돈·정산 불변식이 애플리케이션 코드가 아니라 DB 제약(CHECK/UNIQUE/EXCLUDE)으로 박혔는지.
+        (3) 잘못된 데이터(음수 환불 등)가 INSERT될 수 있는 구멍이 없는지 점검하세요.
+
+    - path: "**/src/test/**"
+      instructions: >-
+        테스트입니다. (1) DB·도메인 로직을 mock하지 말 것 — Testcontainers 실 Postgres를 써야 함.
+        외부 경계(PG·택배·Clock)만 mock. (2) 돈 항등식·멱등은 property 테스트로, 동시성은 N스레드로
+        실제 경합을 재현했는지. (3) "그럴듯하지만 아무것도 검증하지 않는" 동어반복 테스트를 지적하세요.
+
+chat:
+  auto_reply: true
