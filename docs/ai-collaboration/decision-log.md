@@ -70,3 +70,11 @@
 - **테스트 함정과 검증**: 지연 제약은 **커밋에서만** 검사된다 → ① `@Transactional` 테스트는 롤백이라 **검사가 아예 안 돈다**(거짓 그린). ② 커밋 시점 실패는 `TransactionSystemException`으로 감싸진다. 그래서 테스트는 헤더+라인을 한 TX로 넣고 끝에서 `SET CONSTRAINTS ALL IMMEDIATE`로 검사를 그 자리에서 당겨 `DataIntegrityViolationException`으로 잡는다. 예제 IT + jqwik property(헤더를 일부러 틀리게 한 tamper 케이스 포함) 둘 다 실 Postgres로 검증.
 - **경계**: `order_line.order_id → orders(id)`는 같은 BC라 FK로 무결성을 챙기고, `seller_id`(외부 셀러 도메인)·`product_id`(카탈로그)는 값 참조로만 둔다 — 멀티셀러는 한 주문에 서로 다른 `seller_id` 라인이 공존하는 것으로 표현.
 - **리뷰로 잡은 구멍(write skew)**: 최초 트리거는 라인 UPDATE 시 `NEW.order_id`(새 주문)만 검사 → 라인을 다른 주문으로 옮기면 **라인을 빼앗긴 OLD 주문은 합이 틀어진 채 통과**했다(CodeRabbit 지적). 도메인상 라인 재배치는 없으므로 `order_id`를 **불변으로 못박는 BEFORE UPDATE 트리거**(`forbid_order_line_reparent`)로 경로 자체를 봉쇄하고, 이를 거부하는 테스트(`reparentingLineRejected`)를 회귀로 추가. "AI 산출물을 적대적으로 검증"(ADR-005/007 계열)이 리뷰 단계에서 또 작동한 사례.
+
+## ADR-009. 배송 상태는 append-only 이력 + 이벤트 멱등은 (event, seller) UNIQUE ★
+
+- **맥락**: 배송(shipping) DDL. 결제확정(PaymentConfirmed) 이벤트로 셀러별 배송을 만들고, 배송 상태가 전이한다.
+- **결정 1 — 상태를 UPDATE로 덮지 않고 append-only 이력으로**: `shipment.status`는 읽기 캐시일 뿐, 권위는 `shipment_event`(전이를 행으로 쌓음). 단일 `status` UPDATE는 ① 과거(언제·무엇에서·무엇으로 갔나) 소실 ② 동시 전이 lost update ③ 불법 역전이를 못 막는다. "현재 상태는 단 하나"는 **`most_recent` 부분 UNIQUE 인덱스**(`WHERE most_recent`)로 DB가 강제 — 전이는 "직전 most_recent를 false로 내리고 + 새 행을 true로"를 한 TX에서.
+- **결정 2 — 이벤트 멱등은 `(source_event_id, seller_id)` UNIQUE**: 도메인 이벤트는 at-least-once라 결제확정이 중복 도착한다. `source_event_id` *단독* UNIQUE면 한 이벤트가 셀러별 배송 N건을 만드는 멀티셀러를 못 그린다 → **복합키**로 "이벤트당 셀러마다 1건"을 보장. 재수신/따닥은 23505로 흡수(멱등), 동시 16스레드 테스트로 실증.
+- **결정 3 — cross-BC FK 비대칭(payment 선례 유지)**: `shipment_event.shipment_id → shipment(id)`는 같은 BC(배송)라 FK. 반면 `shipment.order_id`는 타 BC(주문)이라 **FK 없이 값 참조**(seller_id·product_id와 동급). 설계 문서(system-design)는 단일 DB라 cross-context FK를 허용하나, 구현은 "추출 가능성"을 위해 더 순수한 DDD 노선을 택해 payment(V2)와 일관되게 cross-BC FK를 걸지 않는다.
+- **검증**: 실 Postgres로 멱등(예제+동시성+property)·멀티셀러·status CHECK·most_recent 단일성·sort_key 유일·FK를 모두 거부/허용 양쪽으로 확인. 과적재 방지(over-ship) 같은 라인 수량 게이팅은 order_line 카운터를 건드려 BC가 얽히므로 **M3(이벤트 소비) 슬라이스로 미룸**(Scope Out 명시).
