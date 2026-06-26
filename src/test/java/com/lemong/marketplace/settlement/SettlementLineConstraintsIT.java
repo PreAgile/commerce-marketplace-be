@@ -119,6 +119,14 @@ class SettlementLineConstraintsIT {
     }
 
     @Test
+    @DisplayName("같은 출처(source_type, source_id)에 COMMISSION 두 줄은 부분 UNIQUE로 거부된다")
+    void duplicateCommissionForSameSourceRejected() {
+        insertLine("COMMISSION", -1_000, "ORDER_ITEM", 150, "evt-c1", null);
+        assertThatThrownBy(() -> insertLine("COMMISSION", -900, "ORDER_ITEM", 150, "evt-c2", null))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
     @DisplayName("같은 출처라도 SALE과 COMMISSION은 각각 한 줄씩 공존한다")
     void saleAndCommissionCoexistForSameSource() {
         assertThat(insertLine("SALE", 10_000, "ORDER_ITEM", 200, "evt-sale", null)).isEqualTo(1);

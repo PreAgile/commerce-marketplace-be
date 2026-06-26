@@ -11,6 +11,11 @@
 --   · seller_id 는 외부 셀러 도메인 논리 참조(FK 아님). source_id 도 타 컨텍스트(주문/결제) id 참조(FK 아님).
 
 -- EXCLUDE에서 = (btree)와 && (gist range)를 한 제약에 섞으려면 btree_gist가 필요하다.
+-- ※ 프로덕션 주의: CREATE EXTENSION은 보통 superuser 권한이 필요하다. 마이그레이션 실행 계정이
+--   비-superuser면 여기서 실패하므로, 실 운영에선 확장 설치를 *권한 있는 부트스트랩*(DB 프로비저닝
+--   단계 / DBA)으로 분리하고 이 마이그레이션은 "이미 설치돼 있음"을 전제하는 게 정석이다.
+--   이 사이드 프로젝트는 "git clone → docker compose → migrate"가 그대로 돌아가는 self-contained 실행을
+--   우선해 inline CREATE(IF NOT EXISTS, 멱등)를 유지한다(CI Testcontainers가 동작을 검증).
 CREATE EXTENSION IF NOT EXISTS btree_gist;
 
 CREATE TABLE settlement_cycle (
@@ -37,7 +42,7 @@ CREATE TABLE settlement_line (
     line_id         BIGINT      GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     seller_id       BIGINT      NOT NULL,                 -- 외부 셀러 도메인 논리 참조
     entry_type      TEXT        NOT NULL,                 -- 아래 ck_settline_type
-    source_type     TEXT        NOT NULL,                 -- ORDER_ITEM / PAYMENT_CANCEL / MANUAL / SELLER_DEPOSIT
+    source_type     TEXT        NOT NULL,                 -- 아래 ck_settline_source_type
     source_id       BIGINT      NOT NULL,                 -- entry_type별 결정론적 출처 id(타 컨텍스트 참조, FK 아님)
     source_event_id TEXT        NOT NULL,                 -- 발행측 불변 고유 이벤트 ID(멱등의 진짜 기준)
     amount_minor    BIGINT      NOT NULL,                 -- 부호 있음(ck_settline_sign)
@@ -46,6 +51,8 @@ CREATE TABLE settlement_line (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
 
     CONSTRAINT ck_settline_evid_len CHECK (char_length(source_event_id) <= 255),
+    CONSTRAINT ck_settline_source_type CHECK (source_type IN
+        ('ORDER_ITEM', 'PAYMENT_CANCEL', 'MANUAL', 'SELLER_DEPOSIT')),
     CONSTRAINT ck_settline_type CHECK (entry_type IN
         ('SALE', 'COMMISSION', 'REFUND', 'REFUND_COMMISSION', 'RETURN_SHIPPING_FEE',
          'PG_FEE_NONREFUND', 'ADJUSTMENT', 'REPAYMENT')),

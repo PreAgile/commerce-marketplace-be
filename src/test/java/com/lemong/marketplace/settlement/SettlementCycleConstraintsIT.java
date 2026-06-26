@@ -34,9 +34,13 @@ class SettlementCycleConstraintsIT {
     }
 
     private int insertCycle(long sellerId, String type, String start, String end) {
+        // tz 없는 날짜 문자열을 UTC로 *명시* 해석한다 — '::timestamptz'만 쓰면 실행 환경의 세션 타임존에
+        // 따라 절대시각이 달라져 테스트가 환경 의존적이 된다(Gemini 지적). UTC로 고정해 결정적으로 만든다.
         return jdbc.sql("""
                         INSERT INTO settlement_cycle (seller_id, cycle_type, period_start, period_end)
-                        VALUES (:seller, :type, :start ::timestamptz, :end ::timestamptz)
+                        VALUES (:seller, :type,
+                                :start ::timestamp AT TIME ZONE 'UTC',
+                                :end   ::timestamp AT TIME ZONE 'UTC')
                         """)
                 .param("seller", sellerId)
                 .param("type", type)
