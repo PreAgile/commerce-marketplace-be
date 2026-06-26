@@ -89,3 +89,14 @@
 - **경계**: `settlement_line.cycle_id → settlement_cycle(cycle_id)`는 같은 BC라 FK. `seller_id`(외부 셀러)·`source_id`(타 컨텍스트 주문/결제 id)는 값 참조.
 - **검증**: 실 Postgres로 부호(예제 0/±1 경계 + property 300)·겹침 거부/인접·타셀러·타유형 허용·복합 멱등·fan-out·출처 UNIQUE·FK를 양쪽으로 확인.
 - **의도적 Scope Out — 누적환불 상한(`0 ≤ 누적환불 ≤ 결제금액`)은 정산이 아니라 결제 컨텍스트에서 강제**(CodeRabbit이 정산 DDL에 트리거로 내리라 제안했으나 *층이 다름*): 이 불변식은 *원결제 금액*을 참조해야 하는데 결제금액은 payment BC에 있다. 정산에서 강제하려면 결제금액 비정규화/cross-BC 트리거가 필요해 AGENTS.md 황금률1(BC 내부 참조 금지)을 위반한다. 이미 `payment.ck_payment_refund_range CHECK (refunded_amount <= paid_amount)`(V2)가 올바른 자리에서 강제하고, settlement_line은 그 환불 흐름이 검증한 사실을 기록하는 하류 원장이다. 라인↔원결제 누적 게이팅은 **M5 refund 슬라이스**로 위임. 마감 집계 캐시(`settlement`)·지급대행(`payout`)·수수료 정책(`commission_policy`)도 후속 슬라이스로 미룸.
+
+## ADR-011. M2 애플리케이션 계층 전략 — 리치 JPA 엔티티 · 헥사고날-lite · 3층 검증 · 경량 BDD ★
+
+- **맥락**: M2부터 DDL이 아니라 *도는 기능*(도메인+서비스+API+트랜잭션). 모델·레이어·테스트 전략을 정한다.
+- **결정 1 — 도메인 모델 = 리치 JPA 엔티티**: 불변식은 *이미 DB에 박제*돼 있으므로(CHECK/트리거/UNIQUE/EXCLUDE) 도메인의 역할은 재구현이 아니라 ① 유효 객체만 생성(팩토리·private 생성자·빠른 피드백) ② 유비쿼터스 언어·행위 표현이다. 별도 도메인/영속 모델 분리는 이 규모에 매핑 보일러플레이트만 늘려 과하다 → JPA 엔티티에 행위 메서드·private setter·protected 기본생성자를 둔 *리치 엔티티*를 도메인 모델로. (트레이드오프: JPA가 도메인에 새어듦 — 수용)
+- **결정 2 — 헥사고날-lite 레이어링**: 컨텍스트별 `domain`/`application`/`web`/`infra`. 외부 경계(PG·시계)는 포트 인터페이스 + Fake(Mockito verify 금지), DB·도메인은 실물(Testcontainers). 공통 모듈은 컨텍스트를 역의존하지 않음 — 예외 매핑은 `common.error.ResourceNotFoundException` 베이스로(컨텍스트→common 단방향).
+- **결정 3 — 3층 검증(앱이 거르고, DB가 보장)**: 요청 DTO Bean Validation→400(빠른 피드백) · 도메인 불변식→400/409 · DB 제약→409(어떤 경로로 와도 막는 최후 보루). `@RestControllerAdvice`가 `ProblemDetail`로 매핑. "검증=UX, 제약=보장"의 역할 분리.
+- **결정 4 — 경량 BDD 이중 루프**: 바깥 루프 = 골든 시나리오를 `@Nested`+`@DisplayName` Given/When/Then MockMvc 인수테스트(비즈니스 언어, 풀스택+실 DB) + `scenario.http` 살아있는 문서. 안쪽 루프 = 단위/통합/property TDD. Cucumber/Gherkin은 솔로 프로젝트에 글루코드 오버헤드가 과해 미채택.
+- **결정 5 — cart는 보조 컨텍스트**: 정산 핵심 4 BC가 아니라 주문 전 staging. `cart_item`은 애그리거트 소유라 FK+`ON DELETE CASCADE`(transient — order_line의 RESTRICT와 의도적 대비). product_id/seller_id는 외부 값 참조.
+- **Boot 4 메모(검증으로 발견)**: Jackson 3(`tools.jackson.*`, `com.fasterxml` 아님), `@AutoConfigureMockMvc`는 `org.springframework.boot.webmvc.test.autoconfigure`로 이동. 테스트는 ObjectMapper 대신 JsonPath로 응답 파싱(의존 최소화).
+- **검증**: Cart 단위(불변식·upsert·멀티셀러) + DB 제약 IT(raw INSERT 우회 거부) + 경량 BDD 인수테스트(담기·누적·400·404) 전부 실 Postgres 그린.
