@@ -34,3 +34,6 @@ docs/load-testing/raw/
 
 # Env
 .env
+
+# jqwik failed-sample DB (로컬 실행 산출물)
+.jqwik-database
