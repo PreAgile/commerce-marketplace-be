@@ -67,8 +67,11 @@ CREATE TABLE settlement_line (
         (entry_type = 'PG_FEE_NONREFUND'    AND amount_minor < 0) OR
         (entry_type = 'REPAYMENT'           AND amount_minor > 0) OR
         (entry_type = 'ADJUSTMENT'          AND amount_minor <> 0)),
-    -- 멱등: 같은 이벤트 재INSERT는 23505 → 정상 swallow(at-least-once 흡수)
-    CONSTRAINT uq_settline_event UNIQUE (source_event_id)
+    -- 멱등키는 (이벤트, 항목유형, 셀러) 복합이다 — source_event_id 단독 UNIQUE면 fan-out을 중복으로 오인한다:
+    --   · 한 사건이 SALE(+)·COMMISSION(−) 두 줄로 분기(같은 이벤트, entry_type 다름)
+    --   · PAYMENT_CANCEL이 멀티셀러로 분기(같은 이벤트, seller_id 다름)
+    -- 복합키는 이 정상 fan-out은 허용하면서, 진짜 중복(같은 event+type+seller 재수신)만 23505로 흡수한다.
+    CONSTRAINT uq_settline_event UNIQUE (source_event_id, entry_type, seller_id)
 );
 
 -- 한 출처(source)당 SALE/COMMISSION은 각각 한 줄만(다른 멱등키로 중복 적재 방지)

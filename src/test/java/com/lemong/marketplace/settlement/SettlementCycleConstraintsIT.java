@@ -86,9 +86,14 @@ class SettlementCycleConstraintsIT {
     }
 
     @Test
-    @DisplayName("period_end <= period_start 면 CHECK 제약으로 거부된다")
+    @DisplayName("period_end <= period_start 면 CHECK 제약으로 거부된다(역전 + 길이 0 경계)")
     void invertedPeriodRejected() {
+        // 역전(end < start)
         assertThatThrownBy(() -> insertCycle(10, "weekly", "2026-06-08", "2026-06-01"))
+                .isInstanceOf(DataIntegrityViolationException.class);
+        // 길이 0(end == start) — ck_cycle_half_open이 strict '>'라 이것도 거부돼야 한다.
+        // 이 경계가 없으면 제약이 실수로 '>='로 완화돼도 스위트가 통과해버린다.
+        assertThatThrownBy(() -> insertCycle(10, "weekly", "2026-06-08", "2026-06-08"))
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 
