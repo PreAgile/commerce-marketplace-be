@@ -8,7 +8,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.LongRange;
-import net.jqwik.api.lifecycle.BeforeProperty;
 import net.jqwik.spring.JqwikSpringSupport;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -30,13 +29,10 @@ class PaymentMoneyInvariantPropertyTest {
     @Autowired
     JdbcClient jdbc;
 
+    // 격리: 각 try가 고유 멱등키(seq)를 써 행이 충돌하지 않으므로 별도 cleanup이 불필요하다.
+    // (jqwik @BeforeProperty로 TRUNCATE를 넣자 jqwik-spring 주입 타이밍 문제로 jdbc가 null → NPE.
+    //  CI가 이를 잡아냈고, 고유키 격리로 되돌렸다.)
     private final AtomicLong seq = new AtomicLong();
-
-    // jqwik은 자체 생명주기라 JUnit @BeforeEach가 아니라 @BeforeProperty를 써야 한다.
-    @BeforeProperty
-    void clean() {
-        jdbc.sql("TRUNCATE TABLE payment RESTART IDENTITY").update();
-    }
 
     @Property(tries = 200)
     void dbAcceptsInsertIffMoneyInvariantHolds(
