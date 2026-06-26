@@ -1,0 +1,35 @@
+version: 2
+updates:
+  # Gradle 의존성 (build.gradle.kts) — 코드 스캐폴딩(M0) 후 실제 동작
+  - package-ecosystem: "gradle"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "build"
+    groups:
+      # 패치/마이너는 묶어서 PR 수를 줄임
+      minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # GitHub Actions 워크플로 액션 버전
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "ci"
+    groups:
+      # 액션 마이너/패치도 묶어 PR 수를 줄임 (Gradle과 일관)
+      actions-minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"

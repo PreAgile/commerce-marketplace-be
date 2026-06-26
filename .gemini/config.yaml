@@ -1,0 +1,10 @@
+# Gemini Code Assist 설정. 한국어 리뷰 지침·도메인 룰은 styleguide.md 참조.
+# 주의: consumer 버전은 2026-07-17 코드 리뷰 종료 예정 — 한시적 사용.
+have_fun: false
+code_review:
+  disable: false
+  comment_severity_threshold: MEDIUM
+ignore_patterns:
+  - "build/**"
+  - ".gradle/**"
+  - "gradle/wrapper/**"
