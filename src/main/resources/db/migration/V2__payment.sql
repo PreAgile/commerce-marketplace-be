@@ -18,6 +18,7 @@ CREATE TABLE payment (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
 
     CONSTRAINT uq_payment_idempotency UNIQUE (idempotency_key),
+    CONSTRAINT ck_payment_idem_len CHECK (char_length(idempotency_key) <= 255),
     CONSTRAINT ck_payment_paid_nonneg CHECK (paid_amount >= 0),
     CONSTRAINT ck_payment_refund_range CHECK (refunded_amount >= 0 AND refunded_amount <= paid_amount),
     -- 미결제(PENDING/CANCELLED) 상태에서 환불액이 남아있는 비정상 데이터 차단

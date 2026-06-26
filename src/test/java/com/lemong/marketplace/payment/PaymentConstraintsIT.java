@@ -32,7 +32,7 @@ class PaymentConstraintsIT {
 
     @BeforeEach
     void clean() {
-        jdbc.sql("DELETE FROM payment").update();
+        jdbc.sql("TRUNCATE TABLE payment RESTART IDENTITY").update();
     }
 
     private int insertPayment(String idempotencyKey, long paid, long refunded, String status) {

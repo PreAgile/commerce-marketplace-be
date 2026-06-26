@@ -8,6 +8,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.LongRange;
+import net.jqwik.api.lifecycle.BeforeProperty;
 import net.jqwik.spring.JqwikSpringSupport;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -30,6 +31,12 @@ class PaymentMoneyInvariantPropertyTest {
     JdbcClient jdbc;
 
     private final AtomicLong seq = new AtomicLong();
+
+    // jqwik은 자체 생명주기라 JUnit @BeforeEach가 아니라 @BeforeProperty를 써야 한다.
+    @BeforeProperty
+    void clean() {
+        jdbc.sql("TRUNCATE TABLE payment RESTART IDENTITY").update();
+    }
 
     @Property(tries = 200)
     void dbAcceptsInsertIffMoneyInvariantHolds(
