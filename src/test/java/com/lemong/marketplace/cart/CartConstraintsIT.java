@@ -34,12 +34,17 @@ class CartConstraintsIT {
     }
 
     private int insertItem(long cartId, long productId, long unitPrice, int quantity) {
+        return insertItem(cartId, productId, 10L, unitPrice, quantity);
+    }
+
+    private int insertItem(long cartId, long productId, long sellerId, long unitPrice, int quantity) {
         return jdbc.sql("""
                         INSERT INTO cart_item (cart_id, product_id, seller_id, unit_price, quantity)
-                        VALUES (:cart, :product, 10, :price, :qty)
+                        VALUES (:cart, :product, :seller, :price, :qty)
                         """)
                 .param("cart", cartId)
                 .param("product", productId)
+                .param("seller", sellerId)
                 .param("price", unitPrice)
                 .param("qty", quantity)
                 .update();
@@ -68,12 +73,20 @@ class CartConstraintsIT {
     }
 
     @Test
-    @DisplayName("같은 카트에 같은 상품 두 줄은 UNIQUE로 거부된다")
-    void duplicateProductInCartRejected() {
+    @DisplayName("같은 카트·같은 상품·같은 셀러 두 줄은 UNIQUE로 거부된다(같은 오퍼)")
+    void duplicateOfferInCartRejected() {
         long cart = insertCart();
-        insertItem(cart, 100L, 3_000L, 1);
-        assertThatThrownBy(() -> insertItem(cart, 100L, 3_000L, 2))
+        insertItem(cart, 100L, 10L, 3_000L, 1);
+        assertThatThrownBy(() -> insertItem(cart, 100L, 10L, 3_000L, 2))
                 .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    @DisplayName("같은 상품이라도 셀러가 다르면 별도 줄로 허용된다(멀티셀러)")
+    void sameProductDifferentSellerAllowed() {
+        long cart = insertCart();
+        assertThat(insertItem(cart, 100L, 10L, 3_000L, 1)).isEqualTo(1);
+        assertThat(insertItem(cart, 100L, 20L, 3_500L, 1)).isEqualTo(1);   // 같은 상품, 다른 셀러
     }
 
     @Test

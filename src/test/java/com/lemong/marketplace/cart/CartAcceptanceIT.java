@@ -79,6 +79,20 @@ class CartAcceptanceIT {
         }
 
         @Test
+        @DisplayName("Given 한 상품을 셀러 A로 담음, When 같은 상품을 셀러 B로 담으면, Then 오퍼가 합쳐지지 않고 2줄이 된다")
+        void sameProductDifferentSellerStaysSeparate() throws Exception {
+            long cartId = givenNewCart(1L);
+
+            addItem(cartId, 100L, 10L, 3_000L, 1);   // 상품 100, 셀러 A
+            addItem(cartId, 100L, 20L, 3_500L, 1);   // 같은 상품 100, 셀러 B
+
+            mvc.perform(get("/carts/" + cartId))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.items.length()").value(2))
+                    .andExpect(jsonPath("$.totalAmount").value(6_500));   // 병합되지 않음
+        }
+
+        @Test
         @DisplayName("Given 이미 담긴 상품, When 같은 상품을 또 담으면, Then 수량이 누적된다")
         void sameProductAccumulates() throws Exception {
             long cartId = givenNewCart(1L);

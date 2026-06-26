@@ -48,16 +48,22 @@ public class Cart {
     }
 
     public static Cart createFor(long buyerId) {
+        if (buyerId <= 0) {
+            throw new IllegalArgumentException("buyerId must be > 0, but was " + buyerId);
+        }
         return new Cart(buyerId);
     }
 
     /**
-     * 상품을 담는다(upsert): 같은 상품이 이미 있으면 수량을 더하고, 없으면 새 항목을 만든다.
-     * {@code uq_cartitem_product}(cart_id, product_id)와 정합 — 상품당 한 줄.
+     * 상품을 담는다(upsert). 오퍼의 단위는 <b>(상품, 셀러)</b> — 마켓플레이스에선 같은 상품을 여러 셀러가
+     * 판다. 같은 (상품, 셀러)면 수량을 더하고, 셀러가 다르면 별도 라인으로 둔다(멀티셀러 핵심).
+     * {@code uq_cartitem_offer}(cart_id, product_id, seller_id)와 정합.
+     *
+     * <p>같은 (상품, 셀러)를 다른 단가로 재담기하면 기존 가격 스냅샷(담은 시점 가격)을 유지하고 수량만 더한다.
      */
     public void addItem(long productId, long sellerId, long unitPrice, int quantity) {
         ensureActive();
-        findItem(productId)
+        findOffer(productId, sellerId)
                 .ifPresentOrElse(
                         existing -> existing.addQuantity(quantity),
                         () -> items.add(CartItem.of(this, productId, sellerId, unitPrice, quantity)));
@@ -74,8 +80,10 @@ public class Cart {
         }
     }
 
-    private java.util.Optional<CartItem> findItem(long productId) {
-        return items.stream().filter(it -> it.getProductId() == productId).findFirst();
+    private java.util.Optional<CartItem> findOffer(long productId, long sellerId) {
+        return items.stream()
+                .filter(it -> it.getProductId() == productId && it.getSellerId() == sellerId)
+                .findFirst();
     }
 
     public Long getId() {

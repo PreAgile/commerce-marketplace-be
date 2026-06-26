@@ -27,8 +27,9 @@ CREATE TABLE cart_item (
 
     CONSTRAINT ck_cartitem_qty   CHECK (quantity > 0),
     CONSTRAINT ck_cartitem_price CHECK (unit_price >= 0),
-    -- 같은 카트에 같은 상품은 한 줄(담기 = 수량 갱신 upsert). 멀티셀러는 product가 다르므로 자연히 여러 줄.
-    CONSTRAINT uq_cartitem_product UNIQUE (cart_id, product_id)
+    -- 오퍼의 단위 = (상품, 셀러). 마켓플레이스에선 같은 상품을 여러 셀러가 팔므로 (product_id)만으로 묶으면
+    -- 서로 다른 셀러 오퍼가 한 줄로 병합돼 셀러 귀속·가격이 틀어진다. seller_id까지 포함해야 멀티셀러가 성립.
+    CONSTRAINT uq_cartitem_offer UNIQUE (cart_id, product_id, seller_id)
 );
 
 CREATE INDEX ix_cartitem_cart ON cart_item (cart_id);

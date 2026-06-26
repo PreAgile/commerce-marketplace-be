@@ -10,12 +10,12 @@ public final class CartRequests {
     private CartRequests() {
     }
 
-    public record CreateCart(@NotNull Long buyerId) {
+    public record CreateCart(@NotNull @Positive Long buyerId) {
     }
 
     public record AddItem(
-            @NotNull Long productId,
-            @NotNull Long sellerId,
+            @NotNull @Positive Long productId,
+            @NotNull @Positive Long sellerId,
             @NotNull @PositiveOrZero Long unitPrice,
             @NotNull @Positive Integer quantity) {
     }

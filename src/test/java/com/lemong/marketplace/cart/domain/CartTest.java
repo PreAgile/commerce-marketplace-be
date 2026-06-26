@@ -47,6 +47,27 @@ class CartTest {
     }
 
     @Test
+    @DisplayName("같은 상품이라도 셀러가 다르면 별도 라인이 된다(멀티셀러 오퍼 분리)")
+    void sameProductDifferentSellerSeparateLines() {
+        Cart cart = Cart.createFor(1L);
+        cart.addItem(100L, 10L, 3_000L, 1);   // 상품 100, 셀러 A
+        cart.addItem(100L, 20L, 3_500L, 1);   // 같은 상품 100, 셀러 B (다른 오퍼)
+
+        assertThat(cart.getItems()).hasSize(2);
+        assertThat(cart.getItems()).extracting(CartItem::getSellerId).containsExactlyInAnyOrder(10L, 20L);
+        assertThat(cart.total().minor()).isEqualTo(6_500L);   // 3000 + 3500, 병합되지 않음
+    }
+
+    @Test
+    @DisplayName("0/음수 buyerId·productId·sellerId는 거부된다")
+    void nonPositiveIdsRejected() {
+        assertThatThrownBy(() -> Cart.createFor(0L)).isInstanceOf(IllegalArgumentException.class);
+        Cart cart = Cart.createFor(1L);
+        assertThatThrownBy(() -> cart.addItem(-1L, 10L, 3_000L, 1)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> cart.addItem(100L, 0L, 3_000L, 1)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     @DisplayName("수량 0 이하로 담으면 거부된다")
     void nonPositiveQuantityRejected() {
         Cart cart = Cart.createFor(1L);

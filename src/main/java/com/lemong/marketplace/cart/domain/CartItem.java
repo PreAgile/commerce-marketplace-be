@@ -54,6 +54,8 @@ public class CartItem {
     }
 
     static CartItem of(Cart cart, long productId, long sellerId, long unitPrice, int quantity) {
+        requirePositiveId(productId, "productId");
+        requirePositiveId(sellerId, "sellerId");
         requirePositive(quantity);
         requireNonNegative(unitPrice);
         return new CartItem(cart, productId, sellerId, unitPrice, quantity);
@@ -78,6 +80,12 @@ public class CartItem {
     private static void requireNonNegative(long value) {
         if (value < 0) {
             throw new IllegalArgumentException("unitPrice must be >= 0, but was " + value);
+        }
+    }
+
+    private static void requirePositiveId(long id, String name) {
+        if (id <= 0) {
+            throw new IllegalArgumentException(name + " must be > 0, but was " + id);
         }
     }
 

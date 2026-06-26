@@ -45,6 +45,12 @@ public class GlobalExceptionHandler {
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
     }
 
+    /** 금액 오버플로우 등(Math.*Exact) — 비현실적으로 큰 입력이 원인이므로 클라이언트 오류로 본다. */
+    @ExceptionHandler(ArithmeticException.class)
+    public ProblemDetail handleArithmetic(ArithmeticException e) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "numeric overflow in amount calculation");
+    }
+
     /** DB 제약(CHECK/UNIQUE/EXCLUDE/트리거)이 막은 경우 — 불변식의 최후 보루. */
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ProblemDetail handleDataIntegrity(DataIntegrityViolationException e) {

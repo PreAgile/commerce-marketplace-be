@@ -100,3 +100,4 @@
 - **결정 5 — cart는 보조 컨텍스트**: 정산 핵심 4 BC가 아니라 주문 전 staging. `cart_item`은 애그리거트 소유라 FK+`ON DELETE CASCADE`(transient — order_line의 RESTRICT와 의도적 대비). product_id/seller_id는 외부 값 참조.
 - **Boot 4 메모(검증으로 발견)**: Jackson 3(`tools.jackson.*`, `com.fasterxml` 아님), `@AutoConfigureMockMvc`는 `org.springframework.boot.webmvc.test.autoconfigure`로 이동. 테스트는 ObjectMapper 대신 JsonPath로 응답 파싱(의존 최소화).
 - **검증**: Cart 단위(불변식·upsert·멀티셀러) + DB 제약 IT(raw INSERT 우회 거부) + 경량 BDD 인수테스트(담기·누적·400·404) 전부 실 Postgres 그린.
+- **리뷰로 잡은 3건(PR #9)**: ① **오퍼 키 = (product, seller)** — 최초 `productId`만으로 dedup해 *같은 상품의 다른 셀러 오퍼가 조용히 한 줄로 병합*(멀티셀러를 깨는 침묵 버그). 도메인 `findOffer(product, seller)` + DB `UNIQUE(cart_id, product_id, seller_id)`로 정정. ② **Money 오버플로우 fail-loud** — `long` 곱/합이 조용히 음수로 래핑 → `Math.multiplyExact/addExact`로 `ArithmeticException`(핸들러가 400 매핑). ③ **id 양수 가드** — `@Positive`(DTO) + 도메인(`createFor`/`CartItem.of`) 가드. (외부 id 양수 DB CHECK는 기존 테이블 전체가 안 거는 컨벤션이라 일관성 위해 보류.)
