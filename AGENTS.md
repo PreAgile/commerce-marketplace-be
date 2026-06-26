@@ -39,7 +39,7 @@
 
 ## 5. 기술 스택·컨벤션
 
-- **Java 21 / Spring Boot 3.x / Gradle(Kotlin DSL) / PostgreSQL 16 / Flyway / Testcontainers / jqwik / k6**
+- **Java 21 / Spring Boot 4.1.x / Gradle 9.x(Kotlin DSL) / PostgreSQL 16 / Flyway / Testcontainers / jqwik / k6**
 - 패키지: `com.lemong.marketplace.<context>` (order/payment/shipping/settlement/common).
 - 로컬 인프라: `docker compose up -d` (Postgres). 외부(PG·택배)는 mock.
 - **커밋**: Conventional Commits(`feat:`·`fix:`·`docs:`·`test:`·`chore:`), 메시지는 한국어. 작은 단위로 자주.
