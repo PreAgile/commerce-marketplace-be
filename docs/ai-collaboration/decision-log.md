@@ -78,3 +78,12 @@
 - **결정 2 — 이벤트 멱등은 `(source_event_id, seller_id)` UNIQUE**: 도메인 이벤트는 at-least-once라 결제확정이 중복 도착한다. `source_event_id` *단독* UNIQUE면 한 이벤트가 셀러별 배송 N건을 만드는 멀티셀러를 못 그린다 → **복합키**로 "이벤트당 셀러마다 1건"을 보장. 재수신/따닥은 23505로 흡수(멱등), 동시 16스레드 테스트로 실증.
 - **결정 3 — cross-BC FK 비대칭(payment 선례 유지)**: `shipment_event.shipment_id → shipment(id)`는 같은 BC(배송)라 FK. 반면 `shipment.order_id`는 타 BC(주문)이라 **FK 없이 값 참조**(seller_id·product_id와 동급). 설계 문서(system-design)는 단일 DB라 cross-context FK를 허용하나, 구현은 "추출 가능성"을 위해 더 순수한 DDD 노선을 택해 payment(V2)와 일관되게 cross-BC FK를 걸지 않는다.
 - **검증**: 실 Postgres로 멱등(예제+동시성+property)·멀티셀러·status CHECK·most_recent 단일성·sort_key 유일·FK를 모두 거부/허용 양쪽으로 확인. 과적재 방지(over-ship) 같은 라인 수량 게이팅은 order_line 카운터를 건드려 BC가 얽히므로 **M3(이벤트 소비) 슬라이스로 미룸**(Scope Out 명시).
+
+## ADR-010. 정산 = 부호 있는 append-only 원장 + 주기 겹침 금지는 EXCLUDE(GiST) ★
+
+- **맥락**: 정산(settlement) DDL. 이 프로젝트의 헤드라인 역량①(멀티셀러 정산 + 4-way 대사)의 뿌리. M1 마지막 도메인 슬라이스.
+- **결정 1 — 부호 있는 append-only 원장**: 셀러 순지급은 잔액 컬럼이 아니라 `SUM(settlement_line.amount_minor)`로 도출(AGENTS.md "잔액 UPDATE 금지"). 판매는 `SALE(+)`·`COMMISSION(−)` 두 줄, 환불은 `REFUND(−)` 등으로 *새 줄 추가*. 정정도 UPDATE가 아니라 반대부호 `ADJUSTMENT`. 부호는 단일 축이라 복식부기(side D/C+양수)와 달리 부호 amount를 쓴다.
+- **결정 2 — `ck_settline_sign`이 load-bearing**: 선형 SUM 모델은 부호가 양변에서 함께 뒤집히면 상쇄돼 통과하므로(드리프트), 부호 정합을 SUM이 아니라 **INSERT CHECK**(entry_type별 +/−/≠0)로 막는다. "1원 드리프트 봉쇄"의 DB 강제 지점. 멱등은 `source_event_id` UNIQUE, 출처당 SALE/COMMISSION 1줄은 부분 UNIQUE.
+- **결정 3 — 주기 겹침 금지는 EXCLUDE(GiST)**: 같은 셀러·유형의 정산 주기가 시간상 겹치면 매출이 이중 집계된다. "범위 겹침"은 단일 CHECK·UNIQUE로 못 박으므로 `EXCLUDE USING gist (seller_id WITH =, cycle_type WITH =, tstzrange(start,end,'[)') WITH &&)`로 DB가 강제(`btree_gist` 확장 필요 — = 와 && 혼용). 반열림 [start,end)라 인접 주기는 겹침이 아니다.
+- **경계**: `settlement_line.cycle_id → settlement_cycle(cycle_id)`는 같은 BC라 FK. `seller_id`(외부 셀러)·`source_id`(타 컨텍스트 주문/결제 id)는 값 참조.
+- **검증**: 실 Postgres로 부호(예제+property 300)·겹침 거부/인접 허용/타셀러·타유형 허용·멱등·출처 UNIQUE·FK를 양쪽으로 확인. 마감 집계 캐시(`settlement`)·지급대행(`payout`)·수수료 정책(`commission_policy`)은 배치/지급 슬라이스로 미룸(Scope Out).
