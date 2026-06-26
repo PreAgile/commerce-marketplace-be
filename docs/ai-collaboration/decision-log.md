@@ -58,3 +58,15 @@
   2. 파이프로 종료코드를 가리지 않는다(`set -o pipefail` 또는 파이프 금지).
   3. **브랜치 보호로 "CI 통과 + PR 필수"를 강제**해 broken merge를 구조적으로 차단(이 사고 직후 적용).
 - **AI 활용 관점**: 이 에피소드 자체가 [`../ai-collaboration/methodology.md`](./methodology.md)·[`verification-loop.md`](./verification-loop.md)의 실증 — **검증을 "리뷰의 그럴듯함"이 아니라 "CI·DB 제약"으로 옮긴다**는 원칙이 실제 사고에서 작동했다.
+
+## ADR-008. 교차 행 불변식(주문 총액 = Σ라인 금액)을 DEFERRABLE 제약 트리거로 강제 ★
+
+- **맥락**: 주문(order) DDL. "주문 총액 == Σ라인 금액"은 이 도메인의 핵심 불변식인데, **여러 라인에 걸친 합**이라 단일 행 `CHECK`로는 못 박는다.
+- **대안 검토**:
+  - **(A) 헤더에 total을 두지 않고 `SUM(order_line)`으로 파생** — 자명하게 정합하지만, `total_amount`는 결제 confirm 때 PG `totalAmount`와 대조하는 **load-bearing 스냅샷**(브라우저 조작 방지)이라 헤더에 동결값이 필요. 탈락.
+  - **(B) 애플리케이션 코드에서 합 검증** — 우회 경로(다른 코드·AI가 짠 경로)가 생기면 뚫린다. AGENTS.md "불변식은 구조로 박제" 위반. 탈락.
+  - **(C) DEFERRABLE INITIALLY DEFERRED 제약 트리거** — **채택**. 헤더 INSERT→라인 INSERT의 자연스러운 순서를 한 TX로 허용하면서, 커밋 시점에 헤더 total과 라인 합을 대조해 안 맞으면 TX 전체를 거부.
+- **결정**: 단일 행은 `CHECK`(수량>0, 단가≥0, `line_amount = unit_price×quantity`), 교차 행은 (C). 트리거는 `RAISE ... USING ERRCODE='check_violation'`(23514)로 던져 Spring이 `DataIntegrityViolationException`으로 번역하게 함(결제 슬라이스와 동일 예외 계열).
+- **테스트 함정과 검증**: 지연 제약은 **커밋에서만** 검사된다 → ① `@Transactional` 테스트는 롤백이라 **검사가 아예 안 돈다**(거짓 그린). ② 커밋 시점 실패는 `TransactionSystemException`으로 감싸진다. 그래서 테스트는 헤더+라인을 한 TX로 넣고 끝에서 `SET CONSTRAINTS ALL IMMEDIATE`로 검사를 그 자리에서 당겨 `DataIntegrityViolationException`으로 잡는다. 예제 IT + jqwik property(헤더를 일부러 틀리게 한 tamper 케이스 포함) 둘 다 실 Postgres로 검증.
+- **경계**: `order_line.order_id → orders(id)`는 같은 BC라 FK로 무결성을 챙기고, `seller_id`(외부 셀러 도메인)·`product_id`(카탈로그)는 값 참조로만 둔다 — 멀티셀러는 한 주문에 서로 다른 `seller_id` 라인이 공존하는 것으로 표현.
+- **리뷰로 잡은 구멍(write skew)**: 최초 트리거는 라인 UPDATE 시 `NEW.order_id`(새 주문)만 검사 → 라인을 다른 주문으로 옮기면 **라인을 빼앗긴 OLD 주문은 합이 틀어진 채 통과**했다(CodeRabbit 지적). 도메인상 라인 재배치는 없으므로 `order_id`를 **불변으로 못박는 BEFORE UPDATE 트리거**(`forbid_order_line_reparent`)로 경로 자체를 봉쇄하고, 이를 거부하는 테스트(`reparentingLineRejected`)를 회귀로 추가. "AI 산출물을 적대적으로 검증"(ADR-005/007 계열)이 리뷰 단계에서 또 작동한 사례.
