@@ -46,3 +46,15 @@
 - **최초(틀린) 결정**: "drift≠0 = break 알람" — **오류**. PG 입금 시차로 정상 drift가 상존해 alert fatigue.
 - **정정**: recon 상태 모델(EXPECTED/IN_TRANSIT/SETTLED/BREAK), 알람은 BREAK≠0만, 닫힌 cutoff + REPEATABLE READ 스냅샷, grace+hysteresis로 false-positive 흡수.
 - **검증**: "in-transit은 알람 안 뜨고 grace 초과만 break" 테스트. *예정*.
+
+## ADR-007. AI 리뷰의 stale 오판 — CI가 ground truth, 브랜치 보호로 게이트 ★
+
+- **맥락**: M0 PR에서 Gemini Code Assist가 3건을 지적(2건 CRITICAL).
+- **사실**: 3건 모두 **오판**이었다 — ① "Spring Boot 4.1.0은 존재하지 않는 가상 버전"(실재, 2026 GA) ② "Boot 스타터 이름이 틀림"(Boot 4의 모듈형 스타터 재편을 모름) ③ "`PostgreSQLContainer` raw type → `<?>`"(새 모듈형 Testcontainers의 `org.testcontainers.postgresql.PostgreSQLContainer`는 **비제네릭**이라 제네릭 표기가 오히려 컴파일 에러). 모두 모델의 **stale 지식**.
+- **검증**: 초록 CI가 ①②를 반증. ③은 적용했더니 `does not take parameters` 컴파일 에러로 드러나 즉시 원복.
+- **2차 사고(내 실수)**: 검증 명령을 `gradlew | tail`로 파이프해 **실패 종료코드가 가려져** 깨진 커밋이 머지됨 → 핫픽스(PR #3)로 복구.
+- **결정·교훈**:
+  1. AI 리뷰도 "그럴듯하지만 검증되지 않음"일 수 있다 — 사람이 **CI/컴파일로 판정**한다(리뷰의 확신이 아니라).
+  2. 파이프로 종료코드를 가리지 않는다(`set -o pipefail` 또는 파이프 금지).
+  3. **브랜치 보호로 "CI 통과 + PR 필수"를 강제**해 broken merge를 구조적으로 차단(이 사고 직후 적용).
+- **AI 활용 관점**: 이 에피소드 자체가 [`../ai-collaboration/methodology.md`](./methodology.md)·[`verification-loop.md`](./verification-loop.md)의 실증 — **검증을 "리뷰의 그럴듯함"이 아니라 "CI·DB 제약"으로 옮긴다**는 원칙이 실제 사고에서 작동했다.
