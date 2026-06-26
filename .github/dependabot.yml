@@ -11,6 +11,8 @@ updates:
     groups:
       # 패치/마이너는 묶어서 PR 수를 줄임
       minor-and-patch:
+        patterns:
+          - "*"
         update-types:
           - "minor"
           - "patch"
@@ -23,3 +25,11 @@ updates:
     open-pull-requests-limit: 3
     commit-message:
       prefix: "ci"
+    groups:
+      # 액션 마이너/패치도 묶어 PR 수를 줄임 (Gradle과 일관)
+      actions-minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"

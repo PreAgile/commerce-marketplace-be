@@ -15,7 +15,7 @@
 - [ ] **DDD 경계 준수** — 다른 BC 내부를 직접 참조하지 않음 (이벤트/id 참조만)
 - [ ] **DB·도메인 mock 안 함** — 외부 경계(PG·택배·Clock)만 mock
 - [ ] 마이그레이션은 **새 파일만** 추가 (기존 마이그레이션 수정 없음, 해당 시)
-- [ ] 스코프 확인 — 로드맵 안의 작업이다 (Scope Out 위반 아님, [`docs/limitations-and-roadmap.md`](../docs/limitations-and-roadmap.md))
+- [ ] 스코프 확인 — 로드맵 안의 작업이다 (Scope Out 위반 아님, [`docs/limitations-and-roadmap.md`](docs/limitations-and-roadmap.md))
 
 ## AI 활용 메모
 <!-- 이 변경에 AI를 어떻게 썼고, 무엇으로 검증했나 (테스트/대사/적대적 리뷰).
