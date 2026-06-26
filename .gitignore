@@ -1,0 +1,36 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# IntelliJ / Eclipse / VS Code
+.idea/
+*.iml
+.classpath
+.project
+.settings/
+.vscode/
+
+# Java
+*.class
+*.log
+hs_err_pid*
+
+# Spring
+application-local.yml
+application-local.properties
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test / coverage
+/coverage/
+*.exec
+
+# Load test output
+k6/output/
+docs/load-testing/raw/
+
+# Env
+.env

@@ -1,0 +1,29 @@
+# 로컬 개발용 인프라. 운영 의존성은 외부 경계(PG·택배)만 mock하고 DB는 진짜를 쓴다.
+services:
+  postgres:
+    image: postgres:16
+    container_name: marketplace-postgres
+    environment:
+      POSTGRES_DB: marketplace
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d marketplace"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # 부하 테스트 관측용 (§7 실측 — 필요할 때 활성화)
+  # prometheus:
+  #   image: prom/prometheus
+  #   ports: ["9090:9090"]
+  # grafana:
+  #   image: grafana/grafana
+  #   ports: ["3000:3000"]
+
+volumes:
+  pgdata:
