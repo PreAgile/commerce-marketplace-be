@@ -115,26 +115,27 @@ class ShipmentConstraintsIT {
         CountDownLatch done = new CountDownLatch(threads);
         AtomicInteger success = new AtomicInteger();
         AtomicInteger conflicts = new AtomicInteger();
-        ExecutorService pool = Executors.newFixedThreadPool(threads);
 
-        for (int i = 0; i < threads; i++) {
-            pool.submit(() -> {
-                try {
-                    start.await();
-                    insertShipment("evt-race", 10, "READY");
-                    success.incrementAndGet();
-                } catch (DataIntegrityViolationException e) {
-                    conflicts.incrementAndGet();   // UNIQUE 충돌 = 기대된 실패(멱등)
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                } finally {
-                    done.countDown();
-                }
-            });
+        // Java 21: ExecutorService는 AutoCloseable — try-with-resources가 예외 경로에서도 풀을 닫는다.
+        try (ExecutorService pool = Executors.newFixedThreadPool(threads)) {
+            for (int i = 0; i < threads; i++) {
+                pool.submit(() -> {
+                    try {
+                        start.await();
+                        insertShipment("evt-race", 10, "READY");
+                        success.incrementAndGet();
+                    } catch (DataIntegrityViolationException e) {
+                        conflicts.incrementAndGet();   // UNIQUE 충돌 = 기대된 실패(멱등)
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    } finally {
+                        done.countDown();
+                    }
+                });
+            }
+            start.countDown();
+            done.await();
         }
-        start.countDown();
-        done.await();
-        pool.shutdown();
 
         assertThat(success.get()).isEqualTo(1);
         assertThat(conflicts.get()).isEqualTo(threads - 1);

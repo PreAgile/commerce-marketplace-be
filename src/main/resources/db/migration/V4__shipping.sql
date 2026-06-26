@@ -47,6 +47,10 @@ CREATE TABLE shipment_event (
     created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
 
     CONSTRAINT ck_shipevent_to_status CHECK (to_status IN
+        ('READY', 'PICKED_UP', 'IN_TRANSIT', 'OUT_FOR_DELIVERY', 'DELIVERED', 'FAILED', 'RETURNED')),
+    -- from_status도 같은 상태 도메인이어야 한다(최초 전이만 NULL). 임의 문자열 차단.
+    -- ※ 전이의 *합법성*(어느 상태→어느 상태가 허용인지)·자가전이 금지는 앱 화이트리스트의 몫(설계 결정).
+    CONSTRAINT ck_shipevent_from_status CHECK (from_status IS NULL OR from_status IN
         ('READY', 'PICKED_UP', 'IN_TRANSIT', 'OUT_FOR_DELIVERY', 'DELIVERED', 'FAILED', 'RETURNED'))
 );
 
