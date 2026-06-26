@@ -117,9 +117,25 @@ class OrderConstraintsIT {
     }
 
     @Test
-    @DisplayName("음수 단가는 CHECK 제약으로 거부된다")
+    @DisplayName("음수 단가는 라인 CHECK(ck_oline_price_nonneg)로 거부된다")
     void negativeUnitPriceRejected() {
-        assertThatThrownBy(() -> createOrder(-3_000, new long[][] {{10, 1, -3_000}}))
+        // 헤더 총액은 0(>=0, 합법)으로 두고 라인 단가만 음수 → 음수 단가 CHECK가 *먼저* 발동.
+        // (헤더까지 음수로 두면 ck_orders_total_nonneg가 먼저 걸려 엉뚱한 제약을 검증하게 됨)
+        assertThatThrownBy(() -> createOrder(0, new long[][] {{10, 1, -3_000}}))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    @DisplayName("라인의 order_id를 다른 주문으로 옮기는 UPDATE는 거부된다(reparent 금지)")
+    void reparentingLineRejected() {
+        long orderA = createOrder(6_000, new long[][] {{10, 2, 3_000}});
+        long orderB = createOrder(4_000, new long[][] {{20, 1, 4_000}});
+        Long lineOfA = jdbc.sql("SELECT id FROM order_line WHERE order_id = :a")
+                .param("a", orderA).query(Long.class).single();
+
+        // A의 라인을 B로 이동 시도 → BEFORE 트리거가 즉시 거부(옛 주문 A의 합이 틀어지는 write skew 봉쇄)
+        assertThatThrownBy(() -> jdbc.sql("UPDATE order_line SET order_id = :b WHERE id = :id")
+                        .param("b", orderB).param("id", lineOfA).update())
                 .isInstanceOf(DataIntegrityViolationException.class);
     }
 

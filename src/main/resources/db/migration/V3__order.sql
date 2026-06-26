@@ -90,3 +90,24 @@ CREATE CONSTRAINT TRIGGER trg_orders_total_matches
     AFTER INSERT OR UPDATE ON orders
     DEFERRABLE INITIALLY DEFERRED
     FOR EACH ROW EXECUTE FUNCTION assert_order_total_matches_lines();
+
+-- ── 라인 재배치(reparent) 금지 ───────────────────────────────────────────────
+-- 위 합산 트리거만으로는 구멍이 있다: order_line.order_id 를 다른 주문으로 UPDATE하면
+-- 트리거는 NEW.order_id(새 주문)만 검사하고, 라인을 빼앗긴 OLD 주문은 합이 틀어진 채 통과한다
+-- (write skew). 도메인상 라인이 다른 주문으로 이사 갈 일은 없으므로 order_id 를 불변으로 못박아
+-- 이 경로 자체를 봉쇄한다(검사 두 번보다 단순·명확). 즉시(BEFORE) 거부해 빠르게 실패한다.
+CREATE OR REPLACE FUNCTION forbid_order_line_reparent() RETURNS trigger AS $$
+BEGIN
+    IF NEW.order_id IS DISTINCT FROM OLD.order_id THEN
+        RAISE EXCEPTION
+            'order_line.order_id is immutable (attempted % -> %)',
+            OLD.order_id, NEW.order_id
+            USING ERRCODE = 'check_violation';   -- 23514 → DataIntegrityViolationException
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_oline_no_reparent
+    BEFORE UPDATE ON order_line
+    FOR EACH ROW EXECUTE FUNCTION forbid_order_line_reparent();
