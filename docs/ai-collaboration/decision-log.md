@@ -110,3 +110,12 @@
 - **의도적 Scope Out**: 동기 호출로 카트를 닫는다. 이벤트(outbox) 기반 비동기 디커플링은 M3로 위임. 재고 예약·결제 연계(S2)도 후속.
 - **검증**: 도메인 단위(총액=Σ라인·멀티셀러·빈 주문 거부) + **도메인 property(총액=Σ라인, jqwik)** + 경량 BDD(멀티셀러 전환·409·400·404) + 동시성 IT(이중 주문 → 정확히 1건이고 패배는 경합 예외만 / 주문↔카트수정 race에서 주문 라인 = 닫힌 카트 항목) 전부 실 Postgres 그린. ArchUnit 3규칙 통과.
 - **리뷰 반영(PR #16)**: 채택 — 원자 consumeForOrder + edit-vs-place IT, 패배 예외 타입 단언 강화, `CartSnapshot` 불변 복사(`List.copyOf`), 총액 property 추가. **거절** — (E) `@PathVariable` 명시 이름: Spring Boot 플러그인이 `-parameters`를 기본 적용하고 기존 cart 컨트롤러의 이름 없는 `@PathVariable`이 인수 테스트로 동작 증명됨 → 비이슈. (F) `OrderLineSpec.unitPrice`를 `Money`로: 단가 불변식은 이미 `OrderLine.of` + DB CHECK로 강제되고 현재 `Money(long)`는 음수를 거부하지 않아 안전 이득이 없으며 published 경계는 의도적으로 primitive를 쓴다 → 다통화로 Money가 리치 VO가 될 때 재검토.
+
+## ADR-013. S2 결제 확정 — 트랜잭셔널 아웃박스 + 3겹 멱등 + PG 포트 ★
+
+- **맥락**: `POST /payments`(선점) → `POST /payments/{id}/confirm`(PG 확정). confirm은 DB 상태 변경(PAID)과 이벤트 발행을 함께 해야 하는데, 둘을 한 트랜잭션으로 못 묶으면 "결제는 됐는데 후속(배송/정산) 이벤트는 유실"이 난다.
+- **결정 1 — 트랜잭셔널 아웃박스(ADR-002 적용)**: confirm이 `payment` UPDATE와 `outbox` INSERT를 같은 @Transactional로 원자화한다(2PC 없이). 실제 발행 릴레이·소비는 M3로 위임, 여기선 적재까지. outbox는 `common.outbox`(공유 인프라)에 두고 `OutboxAppender`(JdbcClient, 호출자 TX 합류)로 적재.
+- **결정 2 — 멱등 3겹**: ① confirm 시 이미 PAID면 no-op(PG 재호출 안 함) ② PG에 멱등키를 end-to-end 전달(`PaymentGateway.confirm(idemKey, amount)`) — 따닥/재시도에 PG가 중복 청구하지 않게 ③ `uq_outbox_event(aggregate_type, aggregate_id, event_type)`가 중복 적재의 최후 보루. 선점도 멱등키로 멱등(기존 반환, 동시 선점은 23505 재조회 흡수).
+- **결정 3 — PG는 아웃바운드 포트 + Fake/Stub**: `PaymentGateway` 인터페이스(application) + `StubPaymentGateway`(infra, 멱등키 기반 결정적 승인). AGENTS.md "외부 경계만 mock"과 정합 — 실 PG 연동 시 이 빈만 교체.
+- **의도적 Scope Out**: 주문 총액 교차검증(브라우저 조작 방지 — order published 포트 필요), 환불(M5), outbox 릴레이/발행·소비(M3), 결제 취소(CANCELLED 전이). amount는 요청값을 신뢰.
+- **검증**: 도메인 단위(선점·전이·이중확정 거부) + 경량 BDD(선점→확정→PAID+outbox 1건, confirm/선점 멱등, 400/404) + 동시성 IT(따닥 16스레드 confirm → PAID 1회·outbox 1건, 패배는 DataIntegrityViolation) 전부 실 Postgres 그린.
