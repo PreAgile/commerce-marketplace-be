@@ -101,3 +101,11 @@
 - **Boot 4 메모(검증으로 발견)**: Jackson 3(`tools.jackson.*`, `com.fasterxml` 아님), `@AutoConfigureMockMvc`는 `org.springframework.boot.webmvc.test.autoconfigure`로 이동. 테스트는 ObjectMapper 대신 JsonPath로 응답 파싱(의존 최소화).
 - **검증**: Cart 단위(불변식·upsert·멀티셀러) + DB 제약 IT(raw INSERT 우회 거부) + 경량 BDD 인수테스트(담기·누적·400·404) 전부 실 Postgres 그린.
 - **리뷰로 잡은 3건(PR #9)**: ① **오퍼 키 = (product, seller)** — 최초 `productId`만으로 dedup해 *같은 상품의 다른 셀러 오퍼가 조용히 한 줄로 병합*(멀티셀러를 깨는 침묵 버그). 도메인 `findOffer(product, seller)` + DB `UNIQUE(cart_id, product_id, seller_id)`로 정정. ② **Money 오버플로우 fail-loud** — `long` 곱/합이 조용히 음수로 래핑 → `Math.multiplyExact/addExact`로 `ArithmeticException`(핸들러가 400 매핑). ③ **id 양수 가드** — `@Positive`(DTO) + 도메인(`createFor`/`CartItem.of`) 가드. (외부 id 양수 DB CHECK는 기존 테이블 전체가 안 거는 컨벤션이라 일관성 위해 보류.)
+
+## ADR-012. S1 주문 생성 — cart→order 경계는 published 포트 + 카트 닫기 낙관적 락 ★
+
+- **맥락**: `POST /orders`는 카트 내용을 읽어 멀티셀러 주문(order+order_line)으로 굳히고 카트를 닫아야 한다. 하지만 황금률 #1상 order BC는 cart의 내부 엔티티·테이블을 직접 참조하면 안 된다.
+- **결정 1 — published 포트(A안)**: cart가 읽기 전용 계약 `cart.published.{CartSnapshot, CartForOrder}`를 노출하고, order는 이 포트만 의존한다(order→cart.published 단방향). 구현 `CartForOrderAdapter`는 cart 내부에 두어 order가 모른다. 대안 B(order가 cart_id로 직접 조회)는 BC 결합을, 또 다른 대안(상태를 필드로 들고 다니는 합성)은 HTTP/cart 개념의 도메인 누출을 일으켜 기각. **ArchUnit 규칙을 "BC 내부 상호 참조 금지, `..published..` 계약만 예외 허용"으로 정교화**해 이 경계를 테스트로 박제.
+- **결정 2 — 카트 닫기에 낙관적 락 재사용**: `CartForOrder.markOrdered`가 cart의 `findByIdForUpdate`(OPTIMISTIC_FORCE_INCREMENT)를 타 동시 이중 주문을 cart 행에서 직렬화한다. read→save(order)→markOrdered가 한 트랜잭션이라, 카트 닫기 실패(이미 ORDERED=409 / 동시 충돌)시 주문도 함께 롤백 — 부분 전환이 남지 않는다.
+- **의도적 Scope Out**: 동기 호출로 카트를 닫는다. 이벤트(outbox) 기반 비동기 디커플링은 M3로 위임. 재고 예약·결제 연계(S2)도 후속.
+- **검증**: 도메인 단위(총액=Σ라인·멀티셀러·빈 주문 거부) + 경량 BDD(멀티셀러 전환·409·400·404) + 동시성 IT(N스레드 이중 주문 → 정확히 1건) 전부 실 Postgres 그린. ArchUnit 3규칙 통과.

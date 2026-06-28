@@ -1,5 +1,7 @@
 package com.lemong.marketplace;
 
+import static com.tngtech.archunit.base.DescribedPredicate.alwaysTrue;
+import static com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAPackage;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
 
@@ -18,11 +20,12 @@ class ArchitectureTest {
 	@ArchTest
 	static final ArchRule 컨텍스트_간_순환_의존_없음 = slices().matching("com.lemong.marketplace.(*)..").should().beFreeOfCycles();
 
-	// common(공유 인프라)은 슬라이스에서 빠지므로 BC→common 의존은 허용된다. BC끼리만 서로 못 본다.
+	// BC끼리는 서로의 내부를 못 본다. 협력은 published 계약(읽기 모델/포트)으로만 — 그 의존만 예외로 허용한다
+	// (예: order → cart.published). common(공유 인프라)은 슬라이스에서 빠지므로 BC→common은 자유.
 	@ArchTest
 	static final ArchRule BC는_서로의_내부를_참조하지_않는다 = slices()
 			.matching("com.lemong.marketplace.(cart|order|payment|shipping|settlement)..").should()
-			.notDependOnEachOther();
+			.notDependOnEachOther().ignoreDependency(alwaysTrue(), resideInAPackage("..published.."));
 
 	// 의존 방향은 web/infra → application → domain. 도메인이 상위 계층을 거꾸로 의존하면 안 된다.
 	@ArchTest
