@@ -29,119 +29,109 @@ import org.springframework.test.web.servlet.MockMvc;
 @AutoConfigureMockMvc
 class CartAcceptanceIT {
 
-    @Autowired
-    MockMvc mvc;
+	@Autowired
+	MockMvc mvc;
 
-    @Autowired
-    JdbcClient jdbc;
+	@Autowired
+	JdbcClient jdbc;
 
-    @BeforeEach
-    void clean() {
-        jdbc.sql("TRUNCATE TABLE cart_item, cart RESTART IDENTITY CASCADE").update();
-    }
+	@BeforeEach
+	void clean() {
+		jdbc.sql("TRUNCATE TABLE cart_item, cart RESTART IDENTITY CASCADE").update();
+	}
 
-    /** Given: 구매자의 새 장바구니가 있다. */
-    private long givenNewCart(long buyerId) throws Exception {
-        String body = mvc.perform(post("/carts")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"buyerId\": " + buyerId + "}"))
-                .andExpect(status().isCreated())
-                .andReturn().getResponse().getContentAsString();
-        return ((Number) JsonPath.parse(body).read("$.cartId")).longValue();
-    }
+	/** Given: 구매자의 새 장바구니가 있다. */
+	private long givenNewCart(long buyerId) throws Exception {
+		String body = mvc
+				.perform(post("/carts").contentType(MediaType.APPLICATION_JSON)
+						.content("{\"buyerId\": " + buyerId + "}"))
+				.andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+		return ((Number) JsonPath.parse(body).read("$.cartId")).longValue();
+	}
 
-    private void addItem(long cartId, long productId, long sellerId, long unitPrice, int quantity)
-            throws Exception {
-        mvc.perform(post("/carts/" + cartId + "/items")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"productId": %d, "sellerId": %d, "unitPrice": %d, "quantity": %d}
-                                """.formatted(productId, sellerId, unitPrice, quantity)))
-                .andExpect(status().isOk());
-    }
+	private void addItem(long cartId, long productId, long sellerId, long unitPrice, int quantity) throws Exception {
+		mvc.perform(post("/carts/" + cartId + "/items").contentType(MediaType.APPLICATION_JSON).content("""
+				{"productId": %d, "sellerId": %d, "unitPrice": %d, "quantity": %d}
+				""".formatted(productId, sellerId, unitPrice, quantity))).andExpect(status().isOk());
+	}
 
-    @Nested
-    @DisplayName("장바구니에 상품을 담을 때")
-    class AddingItems {
+	@Nested
+	@DisplayName("장바구니에 상품을 담을 때")
+	class AddingItems {
 
-        @Test
-        @DisplayName("Given 새 장바구니, When 두 셀러의 상품을 담으면, Then 두 항목과 합계가 보인다")
-        void multiSellerItemsAppear() throws Exception {
-            long cartId = givenNewCart(1L);
+		@Test
+		@DisplayName("Given 새 장바구니, When 두 셀러의 상품을 담으면, Then 두 항목과 합계가 보인다")
+		void multiSellerItemsAppear() throws Exception {
+			long cartId = givenNewCart(1L);
 
-            addItem(cartId, 100L, 10L, 3_000L, 2);   // 셀러 A: 6000
-            addItem(cartId, 200L, 20L, 4_000L, 1);   // 셀러 B: 4000
+			addItem(cartId, 100L, 10L, 3_000L, 2); // 셀러 A: 6000
+			addItem(cartId, 200L, 20L, 4_000L, 1); // 셀러 B: 4000
 
-            mvc.perform(get("/carts/" + cartId))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.items.length()").value(2))
-                    .andExpect(jsonPath("$.totalAmount").value(10_000));
-        }
+			mvc.perform(get("/carts/" + cartId)).andExpect(status().isOk())
+					.andExpect(jsonPath("$.items.length()").value(2))
+					.andExpect(jsonPath("$.totalAmount").value(10_000));
+		}
 
-        @Test
-        @DisplayName("Given 한 상품을 셀러 A로 담음, When 같은 상품을 셀러 B로 담으면, Then 오퍼가 합쳐지지 않고 2줄이 된다")
-        void sameProductDifferentSellerStaysSeparate() throws Exception {
-            long cartId = givenNewCart(1L);
+		@Test
+		@DisplayName("Given 한 상품을 셀러 A로 담음, When 같은 상품을 셀러 B로 담으면, Then 오퍼가 합쳐지지 않고 2줄이 된다")
+		void sameProductDifferentSellerStaysSeparate() throws Exception {
+			long cartId = givenNewCart(1L);
 
-            addItem(cartId, 100L, 10L, 3_000L, 1);   // 상품 100, 셀러 A
-            addItem(cartId, 100L, 20L, 3_500L, 1);   // 같은 상품 100, 셀러 B
+			addItem(cartId, 100L, 10L, 3_000L, 1); // 상품 100, 셀러 A
+			addItem(cartId, 100L, 20L, 3_500L, 1); // 같은 상품 100, 셀러 B
 
-            mvc.perform(get("/carts/" + cartId))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.items.length()").value(2))
-                    .andExpect(jsonPath("$.totalAmount").value(6_500));   // 병합되지 않음
-        }
+			mvc.perform(get("/carts/" + cartId)).andExpect(status().isOk())
+					.andExpect(jsonPath("$.items.length()").value(2)).andExpect(jsonPath("$.totalAmount").value(6_500)); // 병합되지
+																															// 않음
+		}
 
-        @Test
-        @DisplayName("Given 이미 담긴 상품, When 같은 상품을 또 담으면, Then 수량이 누적된다")
-        void sameProductAccumulates() throws Exception {
-            long cartId = givenNewCart(1L);
+		@Test
+		@DisplayName("Given 이미 담긴 상품, When 같은 상품을 또 담으면, Then 수량이 누적된다")
+		void sameProductAccumulates() throws Exception {
+			long cartId = givenNewCart(1L);
 
-            addItem(cartId, 100L, 10L, 3_000L, 2);
-            addItem(cartId, 100L, 10L, 3_000L, 3);
+			addItem(cartId, 100L, 10L, 3_000L, 2);
+			addItem(cartId, 100L, 10L, 3_000L, 3);
 
-            mvc.perform(get("/carts/" + cartId))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.items.length()").value(1))
-                    .andExpect(jsonPath("$.items[0].quantity").value(5))
-                    .andExpect(jsonPath("$.totalAmount").value(15_000));
-        }
-    }
+			mvc.perform(get("/carts/" + cartId)).andExpect(status().isOk())
+					.andExpect(jsonPath("$.items.length()").value(1))
+					.andExpect(jsonPath("$.items[0].quantity").value(5))
+					.andExpect(jsonPath("$.totalAmount").value(15_000));
+		}
+	}
 
-    @Nested
-    @DisplayName("잘못된 요청")
-    class InvalidRequests {
+	@Nested
+	@DisplayName("잘못된 요청")
+	class InvalidRequests {
 
-        @Test
-        @DisplayName("수량 0으로 담으면 400(Bean Validation)")
-        void zeroQuantityIsBadRequest() throws Exception {
-            long cartId = givenNewCart(1L);
-            mvc.perform(post("/carts/" + cartId + "/items")
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content("{\"productId\":100,\"sellerId\":10,\"unitPrice\":3000,\"quantity\":0}"))
-                    .andExpect(status().isBadRequest());
-        }
+		@Test
+		@DisplayName("수량 0으로 담으면 400(Bean Validation)")
+		void zeroQuantityIsBadRequest() throws Exception {
+			long cartId = givenNewCart(1L);
+			mvc.perform(post("/carts/" + cartId + "/items").contentType(MediaType.APPLICATION_JSON)
+					.content("{\"productId\":100,\"sellerId\":10,\"unitPrice\":3000,\"quantity\":0}"))
+					.andExpect(status().isBadRequest());
+		}
 
-        @Test
-        @DisplayName("존재하지 않는 장바구니에 담으면 404")
-        void addingToMissingCartIsNotFound() throws Exception {
-            mvc.perform(post("/carts/999999/items")
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content("{\"productId\":100,\"sellerId\":10,\"unitPrice\":3000,\"quantity\":1}"))
-                    .andExpect(status().isNotFound());
-        }
+		@Test
+		@DisplayName("존재하지 않는 장바구니에 담으면 404")
+		void addingToMissingCartIsNotFound() throws Exception {
+			mvc.perform(post("/carts/999999/items").contentType(MediaType.APPLICATION_JSON)
+					.content("{\"productId\":100,\"sellerId\":10,\"unitPrice\":3000,\"quantity\":1}"))
+					.andExpect(status().isNotFound());
+		}
 
-        @Test
-        @DisplayName("존재하지 않는 장바구니 조회는 404")
-        void getMissingCartIsNotFound() throws Exception {
-            mvc.perform(get("/carts/999999")).andExpect(status().isNotFound());
-        }
-    }
+		@Test
+		@DisplayName("존재하지 않는 장바구니 조회는 404")
+		void getMissingCartIsNotFound() throws Exception {
+			mvc.perform(get("/carts/999999")).andExpect(status().isNotFound());
+		}
+	}
 
-    @Test
-    @DisplayName("장바구니 생성은 201과 cartId를 반환한다")
-    void createReturnsCartId() throws Exception {
-        long cartId = givenNewCart(7L);
-        assertThat(cartId).isPositive();
-    }
+	@Test
+	@DisplayName("장바구니 생성은 201과 cartId를 반환한다")
+	void createReturnsCartId() throws Exception {
+		long cartId = givenNewCart(7L);
+		assertThat(cartId).isPositive();
+	}
 }

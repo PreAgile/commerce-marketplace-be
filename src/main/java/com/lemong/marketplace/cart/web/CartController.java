@@ -17,29 +17,28 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/carts")
 public class CartController {
 
-    private final CartService cartService;
+	private final CartService cartService;
 
-    public CartController(CartService cartService) {
-        this.cartService = cartService;
-    }
+	public CartController(CartService cartService) {
+		this.cartService = cartService;
+	}
 
-    public record CreateCartResponse(long cartId) {
-    }
+	public record CreateCartResponse(long cartId) {
+	}
 
-    @PostMapping
-    public ResponseEntity<CreateCartResponse> createCart(@Valid @RequestBody CartRequests.CreateCart req) {
-        long cartId = cartService.createCart(req.buyerId());
-        return ResponseEntity.created(URI.create("/carts/" + cartId))
-                .body(new CreateCartResponse(cartId));
-    }
+	@PostMapping
+	public ResponseEntity<CreateCartResponse> createCart(@Valid @RequestBody CartRequests.CreateCart req) {
+		long cartId = cartService.createCart(req.buyerId());
+		return ResponseEntity.created(URI.create("/carts/" + cartId)).body(new CreateCartResponse(cartId));
+	}
 
-    @PostMapping("/{id}/items")
-    public CartView addItem(@PathVariable long id, @Valid @RequestBody CartRequests.AddItem req) {
-        return cartService.addItem(id, req.productId(), req.sellerId(), req.unitPrice(), req.quantity());
-    }
+	@PostMapping("/{id}/items")
+	public CartView addItem(@PathVariable long id, @Valid @RequestBody CartRequests.AddItem req) {
+		return cartService.addItem(id, req.productId(), req.sellerId(), req.unitPrice(), req.quantity());
+	}
 
-    @GetMapping("/{id}")
-    public CartView getCart(@PathVariable long id) {
-        return cartService.getCart(id);
-    }
+	@GetMapping("/{id}")
+	public CartView getCart(@PathVariable long id) {
+		return cartService.getCart(id);
+	}
 }
