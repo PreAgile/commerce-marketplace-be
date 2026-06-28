@@ -101,3 +101,12 @@
 - **Boot 4 메모(검증으로 발견)**: Jackson 3(`tools.jackson.*`, `com.fasterxml` 아님), `@AutoConfigureMockMvc`는 `org.springframework.boot.webmvc.test.autoconfigure`로 이동. 테스트는 ObjectMapper 대신 JsonPath로 응답 파싱(의존 최소화).
 - **검증**: Cart 단위(불변식·upsert·멀티셀러) + DB 제약 IT(raw INSERT 우회 거부) + 경량 BDD 인수테스트(담기·누적·400·404) 전부 실 Postgres 그린.
 - **리뷰로 잡은 3건(PR #9)**: ① **오퍼 키 = (product, seller)** — 최초 `productId`만으로 dedup해 *같은 상품의 다른 셀러 오퍼가 조용히 한 줄로 병합*(멀티셀러를 깨는 침묵 버그). 도메인 `findOffer(product, seller)` + DB `UNIQUE(cart_id, product_id, seller_id)`로 정정. ② **Money 오버플로우 fail-loud** — `long` 곱/합이 조용히 음수로 래핑 → `Math.multiplyExact/addExact`로 `ArithmeticException`(핸들러가 400 매핑). ③ **id 양수 가드** — `@Positive`(DTO) + 도메인(`createFor`/`CartItem.of`) 가드. (외부 id 양수 DB CHECK는 기존 테이블 전체가 안 거는 컨벤션이라 일관성 위해 보류.)
+
+## ADR-012. S1 주문 생성 — cart→order 경계는 published 포트 + 카트 닫기 낙관적 락 ★
+
+- **맥락**: `POST /orders`는 카트 내용을 읽어 멀티셀러 주문(order+order_line)으로 굳히고 카트를 닫아야 한다. 하지만 황금률 #1상 order BC는 cart의 내부 엔티티·테이블을 직접 참조하면 안 된다.
+- **결정 1 — published 포트(A안)**: cart가 읽기 전용 계약 `cart.published.{CartSnapshot, CartForOrder}`를 노출하고, order는 이 포트만 의존한다(order→cart.published 단방향). 구현 `CartForOrderAdapter`는 cart 내부에 두어 order가 모른다. 대안 B(order가 cart_id로 직접 조회)는 BC 결합을, 또 다른 대안(상태를 필드로 들고 다니는 합성)은 HTTP/cart 개념의 도메인 누출을 일으켜 기각. **ArchUnit 규칙을 "BC 내부 상호 참조 금지, `..published..` 계약만 예외 허용"으로 정교화**해 이 경계를 테스트로 박제.
+- **결정 2 — 읽기+닫기를 원자적 `consumeForOrder` 하나로**: cart를 `findByIdForUpdate`(OPTIMISTIC_FORCE_INCREMENT)로 한 번 락 로드해 ACTIVE 검증·닫기(ORDERED)·스냅샷 추출을 묶는다. 스냅샷과 닫힌 카트가 *같은 잠긴 로드*에서 나오므로 ① stale 주문 불가(읽기→닫기 사이 카트 수정이 끼면 version 충돌로 거부), ② 동시 이중 주문은 한쪽만 성공, ③ 이미 ORDERED면 주문 INSERT 전에 즉시 409(fail-fast). (초안은 `read`+`markOrdered` 2단계였으나 이중 조회·fail-late·읽기↔닫기 TOCTOU를 PR #16 리뷰가 지적 → 원자 단일 메서드로 수렴.)
+- **의도적 Scope Out**: 동기 호출로 카트를 닫는다. 이벤트(outbox) 기반 비동기 디커플링은 M3로 위임. 재고 예약·결제 연계(S2)도 후속.
+- **검증**: 도메인 단위(총액=Σ라인·멀티셀러·빈 주문 거부) + **도메인 property(총액=Σ라인, jqwik)** + 경량 BDD(멀티셀러 전환·409·400·404) + 동시성 IT(이중 주문 → 정확히 1건이고 패배는 경합 예외만 / 주문↔카트수정 race에서 주문 라인 = 닫힌 카트 항목) 전부 실 Postgres 그린. ArchUnit 3규칙 통과.
+- **리뷰 반영(PR #16)**: 채택 — 원자 consumeForOrder + edit-vs-place IT, 패배 예외 타입 단언 강화, `CartSnapshot` 불변 복사(`List.copyOf`), 총액 property 추가. **거절** — (E) `@PathVariable` 명시 이름: Spring Boot 플러그인이 `-parameters`를 기본 적용하고 기존 cart 컨트롤러의 이름 없는 `@PathVariable`이 인수 테스트로 동작 증명됨 → 비이슈. (F) `OrderLineSpec.unitPrice`를 `Money`로: 단가 불변식은 이미 `OrderLine.of` + DB CHECK로 강제되고 현재 `Money(long)`는 음수를 거부하지 않아 안전 이득이 없으며 published 경계는 의도적으로 primitive를 쓴다 → 다통화로 Money가 리치 VO가 될 때 재검토.

@@ -91,6 +91,12 @@ public class Cart {
 		return items.stream().map(CartItem::lineAmount).reduce(Money.ZERO, Money::plus);
 	}
 
+	// 주문으로 전환되며 카트를 닫는다. 이미 ORDERED면 ensureActive가 막아 이중 주문이 409로 거부된다.
+	public void markOrdered() {
+		ensureActive();
+		this.status = CartStatus.ORDERED;
+	}
+
 	private void ensureActive() {
 		if (status != CartStatus.ACTIVE) {
 			throw new IllegalStateException("cart " + id + " is not ACTIVE (status=" + status + ")");
