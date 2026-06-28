@@ -25,7 +25,7 @@ jobs:
           java-version: '21'
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v6
 
       # build = spotlessCheck(포맷) + test(단위·통합·property·동시성 + ArchUnit 경계) 를 한 번에 게이트
       - name: Build, Format check, Arch & Test
