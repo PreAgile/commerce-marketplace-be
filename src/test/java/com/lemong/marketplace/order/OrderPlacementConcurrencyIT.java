@@ -77,6 +77,8 @@ class OrderPlacementConcurrencyIT {
 	void concurrentPlaceAndCartEditStayConsistent() throws Exception {
 		// 읽기→닫기 사이에 항목이 추가되는 race를 여러 번 시도해 폭격한다. 원자 consumeForOrder가 없으면 주문이
 		// 옛 스냅샷(1줄)으로 만들어지고 카트는 2줄로 닫혀 불일치가 난다.
+		boolean observedPlacedOrder = false; // 한 라운드라도 실제 주문이 생겨야 불변식을 검증한 것 — 공허한 그린 방지
+		ConcurrentLinkedQueue<Throwable> losers = new ConcurrentLinkedQueue<>();
 		for (int round = 0; round < 30; round++) {
 			jdbc.sql("TRUNCATE TABLE order_line, orders, cart_item, cart RESTART IDENTITY CASCADE").update();
 			long cartId = carts.createCart(1L);
@@ -87,14 +89,20 @@ class OrderPlacementConcurrencyIT {
 				if (taskByIndex == 0) {
 					try {
 						placedOrderId.set(orders.place(cartId));
-					} catch (RuntimeException ignoredLoser) {
-						// 경합 패배 — 주문 미생성
+					} catch (RuntimeException e) {
+						losers.add(e); // 경합 패배 — 삼키지 않고 모아 타입 검증
 					}
 				} else {
 					try {
+						// place에 head start를 준다. 안 그러면 단일 INSERT인 addItem이 (주문 INSERT가 딸린) place보다
+						// 늘 먼저 커밋해 place가 매 라운드 롤백 → 주문이 0건이라 불변식을 한 번도 검증 못 한다.
+						// head start로도 addItem은 여전히 동시에 카트를 건드리며, 닫힌 카트 수정이 안전히 거부됨을 본다.
+						Thread.sleep(50);
 						carts.addItem(cartId, 200L, 20L, 2_000L, 1);
-					} catch (RuntimeException ignoredLoser) {
-						// 카트가 이미 닫혔거나 충돌 — 항목 미추가
+					} catch (InterruptedException ie) {
+						Thread.currentThread().interrupt();
+					} catch (RuntimeException e) {
+						losers.add(e); // 카트가 이미 닫혔거나 충돌 — 모아서 타입 검증
 					}
 				}
 			});
@@ -103,22 +111,32 @@ class OrderPlacementConcurrencyIT {
 			if (orderId == null) {
 				continue; // 주문이 안 만들어진 라운드는 검증할 stale 주문이 없음
 			}
-			// 핵심 불변식: 주문이 생겼다면 카트는 닫혔고, 주문 라인 집합 == 카트 항목 집합이어야 한다.
+			observedPlacedOrder = true;
+			// 핵심 불변식: 주문이 생겼다면 카트는 닫혔고, 주문 라인 집합 == 카트 항목 집합(단가 포함)이어야 한다.
 			assertThat(
 					jdbc.sql("SELECT status FROM cart WHERE id = :c").param("c", cartId).query(String.class).single())
 					.isEqualTo("ORDERED");
-			List<String> orderLines = jdbc.sql(
-					"SELECT product_id, seller_id, quantity FROM order_line WHERE order_id = :o ORDER BY product_id")
-					.param("o", orderId).query((rs, n) -> rs.getLong("product_id") + ":" + rs.getLong("seller_id") + ":"
-							+ rs.getInt("quantity"))
-					.list();
-			List<String> cartItems = jdbc
-					.sql("SELECT product_id, seller_id, quantity FROM cart_item WHERE cart_id = :c ORDER BY product_id")
-					.param("c", cartId).query((rs, n) -> rs.getLong("product_id") + ":" + rs.getLong("seller_id") + ":"
-							+ rs.getInt("quantity"))
-					.list();
-			assertThat(orderLines).isEqualTo(cartItems);
+			assertThat(lineTuples("order_line", "order_id", orderId))
+					.isEqualTo(lineTuples("cart_item", "cart_id", cartId));
 		}
+		// 테스트가 공허하게 통과하지 않도록: 최소 한 라운드는 실제 주문을 만들어 불변식을 탔어야 한다.
+		assertThat(observedPlacedOrder).isTrue();
+		// 패배 예외는 전부 예상된 경합 경로(낙관적 충돌/이미 ORDERED)여야 한다 — 무관한 회귀를 숨기지 않는다.
+		assertThat(losers).allSatisfy(e -> assertThat(e).isInstanceOfAny(OptimisticLockingFailureException.class,
+				IllegalStateException.class));
+	}
+
+	/**
+	 * (product, seller, unit_price, quantity) 튜플을 product_id 순으로 — 단가까지 비교해 돈 매핑
+	 * 버그도 잡는다.
+	 */
+	private List<String> lineTuples(String table, String fkColumn, long fkValue) {
+		return jdbc
+				.sql("SELECT product_id, seller_id, unit_price, quantity FROM " + table + " WHERE " + fkColumn
+						+ " = :v ORDER BY product_id")
+				.param("v", fkValue).query((rs, n) -> rs.getLong("product_id") + ":" + rs.getLong("seller_id") + ":"
+						+ rs.getLong("unit_price") + ":" + rs.getInt("quantity"))
+				.list();
 	}
 
 	private void runConcurrently(int threads, java.util.function.IntConsumer taskByIndex) throws InterruptedException {
