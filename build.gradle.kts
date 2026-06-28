@@ -35,9 +35,9 @@ dependencies {
 	testImplementation("org.testcontainers:testcontainers-junit-jupiter")
 	testImplementation("org.testcontainers:testcontainers-postgresql")
 	testImplementation("org.assertj:assertj-core")
-	testImplementation("net.jqwik:jqwik:1.9.3")
+	testImplementation("net.jqwik:jqwik:1.10.1")
 	testImplementation("net.jqwik:jqwik-spring:0.12.0")
-	testImplementation("com.tngtech.archunit:archunit-junit5:1.3.0")
+	testImplementation("com.tngtech.archunit:archunit-junit5:1.4.2")
 	testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
