@@ -1,5 +1,6 @@
 package com.lemong.marketplace.common.web;
 
+import com.lemong.marketplace.common.error.AmountOverflowException;
 import com.lemong.marketplace.common.error.ResourceNotFoundException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
@@ -45,10 +46,14 @@ public class GlobalExceptionHandler {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
 	}
 
-	/** 금액 오버플로우 등(Math.*Exact) — 비현실적으로 큰 입력이 원인이므로 클라이언트 오류로 본다. */
-	@ExceptionHandler(ArithmeticException.class)
-	public ProblemDetail handleArithmetic(ArithmeticException e) {
-		return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "numeric overflow in amount calculation");
+	/**
+	 * 금액·수량 오버플로우(fail-loud) → 400. 비현실적으로 큰 입력이 원인이라 클라이언트 오류로 본다. 일반
+	 * {@link ArithmeticException}은 잡지 않는다(다른 산술 버그는 500으로 드러나야 한다).
+	 */
+	@ExceptionHandler(AmountOverflowException.class)
+	public ProblemDetail handleAmountOverflow(AmountOverflowException e) {
+		return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST,
+				"numeric overflow in amount/quantity calculation");
 	}
 
 	/** DB 제약(CHECK/UNIQUE/EXCLUDE/트리거)이 막은 경우 — 불변식의 최후 보루. */

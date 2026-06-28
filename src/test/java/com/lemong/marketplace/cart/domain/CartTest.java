@@ -3,6 +3,7 @@ package com.lemong.marketplace.cart.domain;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.lemong.marketplace.common.error.AmountOverflowException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -79,5 +80,21 @@ class CartTest {
 	void negativeUnitPriceRejected() {
 		Cart cart = Cart.createFor(1L);
 		assertThatThrownBy(() -> cart.addItem(100L, 10L, -1L, 1)).isInstanceOf(IllegalArgumentException.class);
+	}
+
+	@Test
+	@DisplayName("이미 담긴 오퍼라도 음수 단가로 다시 담으면 거부된다(검증이 카트 상태에 의존하지 않음)")
+	void reAddWithInvalidPriceRejected() {
+		Cart cart = Cart.createFor(1L);
+		cart.addItem(100L, 10L, 3_000L, 1); // 첫 담기 성공 → 누적 분기로 진입하게 됨
+		assertThatThrownBy(() -> cart.addItem(100L, 10L, -1L, 1)).isInstanceOf(IllegalArgumentException.class);
+	}
+
+	@Test
+	@DisplayName("수량 누적이 int 범위를 넘으면 조용히 wrap되지 않고 fail-loud로 터진다")
+	void quantityAccumulationOverflowThrows() {
+		Cart cart = Cart.createFor(1L);
+		cart.addItem(100L, 10L, 1L, Integer.MAX_VALUE);
+		assertThatThrownBy(() -> cart.addItem(100L, 10L, 1L, 1)).isInstanceOf(AmountOverflowException.class);
 	}
 }

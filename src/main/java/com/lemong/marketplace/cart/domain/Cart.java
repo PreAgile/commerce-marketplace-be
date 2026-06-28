@@ -29,7 +29,7 @@ public class Cart {
 	private Long id;
 
 	@Column(name = "buyer_id", nullable = false)
-	private Long buyerId;
+	private long buyerId;
 
 	@Enumerated(EnumType.STRING)
 	@Column(nullable = false)
@@ -65,8 +65,26 @@ public class Cart {
 	// seller_id)와 정합.
 	public void addItem(long productId, long sellerId, long unitPrice, int quantity) {
 		ensureActive();
+		// 분기 전 공통 검증 — 입력 유효성이 카트 상태(기존 오퍼 유무)에 따라 달라지면 안 된다.
+		// 누적 분기는 단가를 스냅샷으로 버리지만, 잘못된 단가는 첫 담기와 똑같이 거부해야 계약이 일관된다.
+		requireValidOffer(productId, sellerId, unitPrice, quantity);
 		findOffer(productId, sellerId).ifPresentOrElse(existing -> existing.addQuantity(quantity),
 				() -> items.add(CartItem.of(this, productId, sellerId, unitPrice, quantity)));
+	}
+
+	private static void requireValidOffer(long productId, long sellerId, long unitPrice, int quantity) {
+		if (productId <= 0) {
+			throw new IllegalArgumentException("productId must be > 0, but was " + productId);
+		}
+		if (sellerId <= 0) {
+			throw new IllegalArgumentException("sellerId must be > 0, but was " + sellerId);
+		}
+		if (unitPrice < 0) {
+			throw new IllegalArgumentException("unitPrice must be >= 0, but was " + unitPrice);
+		}
+		if (quantity <= 0) {
+			throw new IllegalArgumentException("quantity must be > 0, but was " + quantity);
+		}
 	}
 
 	public Money total() {
@@ -88,7 +106,7 @@ public class Cart {
 		return id;
 	}
 
-	public Long getBuyerId() {
+	public long getBuyerId() {
 		return buyerId;
 	}
 

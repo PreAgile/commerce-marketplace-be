@@ -55,14 +55,39 @@ class CartConstraintsIT {
 	@DisplayName("수량 0은 CHECK 제약으로 거부된다")
 	void zeroQuantityRejected() {
 		long cart = insertCart();
-		assertThatThrownBy(() -> insertItem(cart, 100L, 3_000L, 0)).isInstanceOf(DataIntegrityViolationException.class);
+		assertThatThrownBy(() -> insertItem(cart, 100L, 3_000L, 0)).isInstanceOf(DataIntegrityViolationException.class)
+				.hasStackTraceContaining("ck_cartitem_qty");
 	}
 
 	@Test
 	@DisplayName("음수 단가는 CHECK 제약으로 거부된다")
 	void negativeUnitPriceRejected() {
 		long cart = insertCart();
-		assertThatThrownBy(() -> insertItem(cart, 100L, -1L, 1)).isInstanceOf(DataIntegrityViolationException.class);
+		assertThatThrownBy(() -> insertItem(cart, 100L, -1L, 1)).isInstanceOf(DataIntegrityViolationException.class)
+				.hasStackTraceContaining("ck_cartitem_price");
+	}
+
+	@Test
+	@DisplayName("음수 buyer_id는 CHECK 제약으로 거부된다")
+	void negativeBuyerIdRejected() {
+		assertThatThrownBy(() -> jdbc.sql("INSERT INTO cart (buyer_id) VALUES (-1)").update())
+				.isInstanceOf(DataIntegrityViolationException.class).hasStackTraceContaining("ck_cart_buyer");
+	}
+
+	@Test
+	@DisplayName("음수 product_id는 CHECK 제약으로 거부된다")
+	void negativeProductIdRejected() {
+		long cart = insertCart();
+		assertThatThrownBy(() -> insertItem(cart, -1L, 10L, 3_000L, 1))
+				.isInstanceOf(DataIntegrityViolationException.class).hasStackTraceContaining("ck_cartitem_product");
+	}
+
+	@Test
+	@DisplayName("음수 seller_id는 CHECK 제약으로 거부된다")
+	void negativeSellerIdRejected() {
+		long cart = insertCart();
+		assertThatThrownBy(() -> insertItem(cart, 100L, -5L, 3_000L, 1))
+				.isInstanceOf(DataIntegrityViolationException.class).hasStackTraceContaining("ck_cartitem_seller");
 	}
 
 	@Test
@@ -71,7 +96,7 @@ class CartConstraintsIT {
 		long cart = insertCart();
 		insertItem(cart, 100L, 10L, 3_000L, 1);
 		assertThatThrownBy(() -> insertItem(cart, 100L, 10L, 3_000L, 2))
-				.isInstanceOf(DataIntegrityViolationException.class);
+				.isInstanceOf(DataIntegrityViolationException.class).hasStackTraceContaining("uq_cartitem_offer");
 	}
 
 	@Test
@@ -86,13 +111,13 @@ class CartConstraintsIT {
 	@DisplayName("존재하지 않는 카트에 항목을 달면 FK로 거부된다")
 	void itemForMissingCartRejected() {
 		assertThatThrownBy(() -> insertItem(999_999L, 100L, 3_000L, 1))
-				.isInstanceOf(DataIntegrityViolationException.class);
+				.isInstanceOf(DataIntegrityViolationException.class).hasStackTraceContaining("cart_item_cart_id_fkey");
 	}
 
 	@Test
 	@DisplayName("정의되지 않은 카트 상태는 CHECK 제약으로 거부된다")
 	void invalidCartStatusRejected() {
 		assertThatThrownBy(() -> jdbc.sql("INSERT INTO cart (buyer_id, status) VALUES (1, 'PURGED')").update())
-				.isInstanceOf(DataIntegrityViolationException.class);
+				.isInstanceOf(DataIntegrityViolationException.class).hasStackTraceContaining("ck_cart_status");
 	}
 }

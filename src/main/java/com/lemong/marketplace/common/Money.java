@@ -1,5 +1,7 @@
 package com.lemong.marketplace.common;
 
+import com.lemong.marketplace.common.error.AmountOverflowException;
+
 /**
  * 돈을 나타내는 값 객체(VO). 최소 단위(minor unit; 원이면 1=1원) 정수로만 다룬다.
  *
@@ -15,13 +17,22 @@ public record Money(long minor) {
 		return new Money(minor);
 	}
 
-	// 오버플로 시 조용히 음수로 래핑되면 돈에선 재앙이라, Math.*Exact로 즉시 ArithmeticException(fail-loud).
+	// 오버플로 시 조용히 음수로 래핑되면 돈에선 재앙이라, Math.*Exact로 즉시 fail-loud.
+	// 전용 예외로 던져 전역 매핑이 무관한 ArithmeticException까지 400으로 오분류하지 않게 한다.
 	public Money plus(Money other) {
-		return new Money(Math.addExact(this.minor, other.minor));
+		try {
+			return new Money(Math.addExact(this.minor, other.minor));
+		} catch (ArithmeticException e) {
+			throw new AmountOverflowException("amount overflow: " + this.minor + " + " + other.minor);
+		}
 	}
 
 	public Money times(int quantity) {
-		return new Money(Math.multiplyExact(this.minor, (long) quantity));
+		try {
+			return new Money(Math.multiplyExact(this.minor, (long) quantity));
+		} catch (ArithmeticException e) {
+			throw new AmountOverflowException("amount overflow: " + this.minor + " * " + quantity);
+		}
 	}
 
 	public boolean isNegative() {

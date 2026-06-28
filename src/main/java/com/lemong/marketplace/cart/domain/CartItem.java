@@ -1,6 +1,7 @@
 package com.lemong.marketplace.cart.domain;
 
 import com.lemong.marketplace.common.Money;
+import com.lemong.marketplace.common.error.AmountOverflowException;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -31,10 +32,10 @@ public class CartItem {
 	private Cart cart;
 
 	@Column(name = "product_id", nullable = false)
-	private Long productId;
+	private long productId;
 
 	@Column(name = "seller_id", nullable = false)
-	private Long sellerId;
+	private long sellerId;
 
 	@Column(name = "unit_price", nullable = false)
 	private long unitPrice;
@@ -64,10 +65,14 @@ public class CartItem {
 
 	void addQuantity(int delta) {
 		requirePositive(delta);
-		this.quantity += delta;
+		try {
+			this.quantity = Math.addExact(this.quantity, delta);
+		} catch (ArithmeticException e) {
+			throw new AmountOverflowException("quantity overflow: " + this.quantity + " + " + delta);
+		}
 	}
 
-	Money lineAmount() {
+	public Money lineAmount() {
 		return Money.of(unitPrice).times(quantity);
 	}
 
@@ -93,11 +98,11 @@ public class CartItem {
 		return id;
 	}
 
-	public Long getProductId() {
+	public long getProductId() {
 		return productId;
 	}
 
-	public Long getSellerId() {
+	public long getSellerId() {
 		return sellerId;
 	}
 

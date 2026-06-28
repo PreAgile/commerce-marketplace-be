@@ -105,26 +105,30 @@ class CartAcceptanceIT {
 	class InvalidRequests {
 
 		@Test
-		@DisplayName("수량 0으로 담으면 400(Bean Validation)")
+		@DisplayName("수량 0으로 담으면 400 + ProblemDetail(status=400)")
 		void zeroQuantityIsBadRequest() throws Exception {
 			long cartId = givenNewCart(1L);
 			mvc.perform(post("/carts/" + cartId + "/items").contentType(MediaType.APPLICATION_JSON)
 					.content("{\"productId\":100,\"sellerId\":10,\"unitPrice\":3000,\"quantity\":0}"))
-					.andExpect(status().isBadRequest());
+					.andExpect(status().isBadRequest()).andExpect(jsonPath("$.status").value(400))
+					.andExpect(jsonPath("$.detail").exists());
 		}
 
 		@Test
-		@DisplayName("존재하지 않는 장바구니에 담으면 404")
+		@DisplayName("존재하지 않는 장바구니에 담으면 404 + ProblemDetail(status=404, detail)")
 		void addingToMissingCartIsNotFound() throws Exception {
 			mvc.perform(post("/carts/999999/items").contentType(MediaType.APPLICATION_JSON)
 					.content("{\"productId\":100,\"sellerId\":10,\"unitPrice\":3000,\"quantity\":1}"))
-					.andExpect(status().isNotFound());
+					.andExpect(status().isNotFound()).andExpect(jsonPath("$.status").value(404))
+					.andExpect(jsonPath("$.detail").value("cart not found: 999999"));
 		}
 
 		@Test
-		@DisplayName("존재하지 않는 장바구니 조회는 404")
+		@DisplayName("존재하지 않는 장바구니 조회는 404 + ProblemDetail(status=404, detail)")
 		void getMissingCartIsNotFound() throws Exception {
-			mvc.perform(get("/carts/999999")).andExpect(status().isNotFound());
+			mvc.perform(get("/carts/999999")).andExpect(status().isNotFound())
+					.andExpect(jsonPath("$.status").value(404))
+					.andExpect(jsonPath("$.detail").value("cart not found: 999999"));
 		}
 	}
 
