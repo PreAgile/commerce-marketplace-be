@@ -14,8 +14,8 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <p>
  * cart 내부(엔티티·테이블)는 모른 채 {@link CartForOrder} 포트로만 협력한다(BC 단방향).
- * read→save→markOrdered가 한 트랜잭션이라 카트 닫기 실패(이미 ORDERED/동시 주문 충돌) 시 주문도 함께 롤백된다 —
- * 부분 전환이 남지 않는다.
+ * consumeForOrder(락+검증+닫기)→save가 한 트랜잭션이라, 카트 닫기 실패(이미 ORDERED/동시 충돌)나 빈
+ * 카트(400) 시 주문도 함께 롤백된다 — 부분 전환이 남지 않는다.
  */
 @Service
 @Transactional
@@ -30,13 +30,13 @@ public class PlaceOrderService {
 	}
 
 	public long place(long cartId) {
-		CartSnapshot snapshot = cart.read(cartId);
+		// 락+검증+닫기를 한 번에. 이미 ORDERED면 여기서 즉시 409(주문 INSERT 전 fail-fast), 동시 주문/수정은
+		// version 충돌.
+		CartSnapshot snapshot = cart.consumeForOrder(cartId);
 		List<OrderLineSpec> specs = snapshot.lines().stream()
 				.map(l -> new OrderLineSpec(l.productId(), l.sellerId(), l.unitPrice(), l.quantity())).toList();
-		Order order = Order.place(snapshot.buyerId(), specs); // 빈 카트면 IllegalArgumentException → 400
-		long orderId = orders.save(order).getId();
-		cart.markOrdered(cartId); // 이미 ORDERED면 409, 동시 주문이면 낙관적 충돌 → 둘 다 롤백
-		return orderId;
+		Order order = Order.place(snapshot.buyerId(), specs); // 빈 카트면 IllegalArgumentException → 400 (전체 롤백)
+		return orders.save(order).getId();
 	}
 
 	@Transactional(readOnly = true)

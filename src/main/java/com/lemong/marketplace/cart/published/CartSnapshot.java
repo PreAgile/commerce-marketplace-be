@@ -8,6 +8,10 @@ import java.util.List;
  */
 public record CartSnapshot(long cartId, long buyerId, String status, List<Line> lines) {
 
+	public CartSnapshot {
+		lines = List.copyOf(lines); // published 계약을 사후 변조 불가하게 — 불변 복사본으로 박제
+	}
+
 	public record Line(long productId, long sellerId, long unitPrice, int quantity) {
 	}
 }

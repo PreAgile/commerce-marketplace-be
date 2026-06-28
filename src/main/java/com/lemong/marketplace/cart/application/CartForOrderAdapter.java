@@ -20,17 +20,14 @@ class CartForOrderAdapter implements CartForOrder {
 	}
 
 	@Override
-	public CartSnapshot read(long cartId) {
-		Cart cart = carts.findById(cartId).orElseThrow(() -> new CartNotFoundException(cartId));
+	public CartSnapshot consumeForOrder(long cartId) {
+		// 락으로 한 번 로드 → 닫기 → 그 잠긴 인스턴스에서 스냅샷 추출. 스냅샷과 닫힌 카트가 같은 상태라 stale 주문이 없고,
+		// FORCE_INCREMENT가 동시 수정/이중 주문을 version 충돌로 직렬화한다. markOrdered가 먼저라 이미 ORDERED면
+		// 즉시 거부.
+		Cart cart = carts.findByIdForUpdate(cartId).orElseThrow(() -> new CartNotFoundException(cartId));
+		cart.markOrdered();
 		return new CartSnapshot(cart.getId(), cart.getBuyerId(), cart.getStatus().name(), cart.getItems().stream().map(
 				it -> new CartSnapshot.Line(it.getProductId(), it.getSellerId(), it.getUnitPrice(), it.getQuantity()))
 				.toList());
-	}
-
-	@Override
-	public void markOrdered(long cartId) {
-		// FORCE_INCREMENT 로드로 동시 주문을 직렬화 — 진 쪽은 낙관적 충돌로 실패한다(이중 주문 방지).
-		Cart cart = carts.findByIdForUpdate(cartId).orElseThrow(() -> new CartNotFoundException(cartId));
-		cart.markOrdered();
 	}
 }

@@ -7,7 +7,6 @@ import java.util.List;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/** 주문 도메인 단위 테스트(안쪽 루프). 총액 보존·멀티셀러·빈 주문 거부를 DB 없이 빠르게 못박는다. */
 class OrderTest {
 
 	private static OrderLineSpec line(long product, long seller, long price, int qty) {

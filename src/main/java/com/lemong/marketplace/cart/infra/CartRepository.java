@@ -8,7 +8,6 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-/** Cart 애그리거트 영속 포트. Spring Data JPA가 구현 제공. */
 public interface CartRepository extends JpaRepository<Cart, Long> {
 
 	/**
