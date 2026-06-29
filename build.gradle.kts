@@ -24,6 +24,8 @@ dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-flyway")
 	implementation("org.springframework.boot:spring-boot-starter-validation")
 	implementation("org.springframework.boot:spring-boot-starter-webmvc")
+	// webmvc 스타터는 Jackson을 런타임에만 노출한다 — outbox payload 직렬화(PaymentService)는 컴파일 의존이 필요해 명시 추가.
+	implementation("com.fasterxml.jackson.core:jackson-databind")
 	implementation("org.flywaydb:flyway-database-postgresql")
 	runtimeOnly("org.postgresql:postgresql")
 	testImplementation("org.springframework.boot:spring-boot-starter-actuator-test")
