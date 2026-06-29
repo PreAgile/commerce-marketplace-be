@@ -38,7 +38,6 @@ public class Payment {
 	private PaymentStatus status;
 
 	protected Payment() {
-		// JPA
 	}
 
 	private Payment(long orderId, String idempotencyKey, long amount) {

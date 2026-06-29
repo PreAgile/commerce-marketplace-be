@@ -1,12 +1,11 @@
 package com.lemong.marketplace.payment.domain;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-/** 결제 도메인 단위 테스트(안쪽 루프). 선점 검증·상태 전이를 DB 없이 빠르게 못박는다. */
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
 class PaymentTest {
 
 	@Test

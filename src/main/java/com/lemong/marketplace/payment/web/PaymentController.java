@@ -3,16 +3,11 @@ package com.lemong.marketplace.payment.web;
 import com.lemong.marketplace.payment.application.PaymentService;
 import com.lemong.marketplace.payment.application.PaymentView;
 import jakarta.validation.Valid;
-import java.net.URI;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
-/** 결제 API. 골든 시나리오 S2(결제 승인·확정). */
+import java.net.URI;
+
 @RestController
 @RequestMapping("/payments")
 public class PaymentController {

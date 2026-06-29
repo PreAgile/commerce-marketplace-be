@@ -9,7 +9,6 @@ import org.springframework.stereotype.Component;
  */
 @Component
 class StubPaymentGateway implements PaymentGateway {
-
 	@Override
 	public PgApproval confirm(String idempotencyKey, long amount) {
 		return new PgApproval("stub-" + idempotencyKey, amount);

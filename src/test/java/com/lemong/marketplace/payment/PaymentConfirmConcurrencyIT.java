@@ -1,15 +1,7 @@
 package com.lemong.marketplace.payment;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 import com.lemong.marketplace.TestcontainersConfiguration;
 import com.lemong.marketplace.payment.application.PaymentService;
-import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -18,14 +10,11 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
-/**
- * 따닥 결제 — 같은 결제를 N스레드가 동시에 확정해도 PAID 1회·outbox 1건으로 멱등함을 실 Postgres로 검증한다.
- *
- * <p>
- * outbox의 uq_outbox_event(aggregate, id, event_type)가 동시 confirm을 직렬화한다 — 한
- * 트랜잭션만 PaymentConfirmed를 적재하고 나머지는 23505로 충돌·롤백된다. PG는 멱등키로 end-to-end 멱등이라 중복
- * 호출도 안전.
- */
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest
 class PaymentConfirmConcurrencyIT {

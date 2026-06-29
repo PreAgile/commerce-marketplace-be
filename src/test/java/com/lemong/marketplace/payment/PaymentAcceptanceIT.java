@@ -19,10 +19,6 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.web.servlet.MockMvc;
 
-/**
- * 결제 승인·확정 인수 테스트 — 골든 시나리오 S2. 결제 선점(PENDING) → PG 확정 → PAID + outbox 적재가
- * 풀스택·실 Postgres로 동작함을, 그리고 재시도(따닥)에도 멱등함을 검증한다.
- */
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest
 @AutoConfigureMockMvc
