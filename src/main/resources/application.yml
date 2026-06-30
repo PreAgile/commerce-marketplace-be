@@ -16,3 +16,9 @@ management:
     web:
       exposure:
         include: health,info
+# outbox 릴레이: 미발행 이벤트를 폴링해 in-process 핸들러로 디스패치(ADR-002 사후 발행).
+# 테스트는 이 폴링을 끄고 디스패처를 직접 호출해 결정적으로 검증한다.
+outbox:
+  relay:
+    enabled: true
+    interval-ms: 1000
