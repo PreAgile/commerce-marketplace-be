@@ -129,3 +129,11 @@
 - **결정 3 — 배송 생성 멱등은 ON CONFLICT(payment.initiate 선례)**: at-least-once 재전달에 대비해 `INSERT ... ON CONFLICT (source_event_id, seller_id) DO NOTHING`으로 충돌을 예외 아닌 no-op으로 흡수. `source_event_id = "payment:{paymentId}"`(결제확정은 결제당 1건이라 불변·고유). `RETURNING`으로 *이번에 새로 만든* 배송만 식별해 그때만 초기 상태 이력(`shipment_event` READY, `most_recent`)을 append.
 - **의도적 Scope Out(M3-b 이후)**: 배송 상태 전이(PICKED_UP→…→DELIVERED) API·전이 화이트리스트, 택배사 추적 콜백, 자동확정 타이머, 반품/교환.
 - **검증**: 통합 IT(`ShipmentCreationIT`) — 멀티셀러 2건 생성+발행 마킹 / at-least-once 재전달 멱등(배송·상태이력 중복 0) / N회 재전달 수렴 / 이미 발행된 이벤트 재디스패치 no-op — 전부 실 Postgres 그린. 기존 `ShipmentConstraintsIT`·`ShipmentIdempotencyPropertyTest`(DB 제약)와 ArchUnit(BC 경계·순환 없음) 통과.
+
+## ADR-015. M3-b 배송 상태 전이 — 화이트리스트 상태머신 + 핫로우 직렬화 ★
+
+- **맥락**: `POST /shipments/{id}/events`로 배송 상태를 전이한다(골든 시나리오 S4). V4 DDL이 상태 문자열의 *도메인*만 CHECK로 막고 *전이의 합법성*(어느 상태→어느 상태)은 앱의 몫으로 남겨뒀다 — 그 자리를 채운다.
+- **결정 1 — 전이 화이트리스트를 enum 구조로 박제**: `shipping.domain.ShipmentStatus`가 상태별 허용 후속을 `EnumMap<…, EnumSet>`으로 들고 `canTransitionTo`로 판정한다. 자가 전이·역전이·단계 건너뛰기·종료 상태(DELIVERED/FAILED/RETURNED)에서의 전이가 자료구조상 자동 거부된다 — if문 분기가 아니라 화이트리스트 한 곳이 단일 진실. 해피패스는 선형 전진이며 어느 단계서든 FAILED로 분기 가능. RETURNED는 반품 기능(로드맵) 전까지 도달 경로 없음. 불법 전이 → `IllegalStateException`(409).
+- **결정 2 — append-only 전이를 shipment 행 FOR UPDATE로 직렬화**: 전이는 "잠금 획득 → 현재 most_recent 상태 읽기 → 화이트리스트 검증 → 직전 most_recent=false + 새 행 append(sort_key+1) → status 캐시 갱신"을 한 트랜잭션으로 한다. 같은 배송에 동시 전이가 와도 `SELECT … FOR UPDATE`가 직렬화하고, 패자는 *잠금 해제 후 갱신된 현재 상태를 다시 읽어*(READ COMMITTED) 자가 전이로 거부된다 — `most_recent` 부분 UNIQUE는 그 최후 보루. 잠금을 쥐기 전에 상태를 읽으면 lost update가 나므로 "잠금 먼저, 읽기 나중"(OutboxDispatcher 선례).
+- **의도적 Scope Out**: 배송완료(DELIVERED) 시 정산-가능 신호(outbox 이벤트) 발행 — settlement가 소비하는 M4의 진입점이라 그쪽 슬라이스로 미룬다(이 PR은 shipping BC 1개 단위 유지). 택배사 추적 콜백·자동확정 타이머·반품/교환도 후속.
+- **검증**: 단위(`ShipmentStatusTest`, 7×7 전이 쌍 전수 + 자가/역/스킵/종료) + 인수 IT(`ShipmentTransitionIT`, 해피패스 체인·FAILED 분기·불법 전이 409·404·400, append-only 불변식 DB 확인) + 동시성 IT(`ShipmentTransitionConcurrencyIT`, 16스레드 따닥 → 단 1건 성공·이력 2건) 전부 실 Postgres 그린.
