@@ -212,14 +212,33 @@ class ShipmentTransitionIT {
 					""").param("id", id).query(Long.class).single();
 			assertThat(orderId).isEqualTo(1L);
 			assertThat(sellerId).isEqualTo(10L);
+
+			// payload 계약 전체 검증(CR-3): shipmentId 누락과 deliveredAt이 DB의 DELIVERED 발생시각과 다른
+			// 회귀를 잡는다.
+			Long payloadShipmentId = jdbc.sql("""
+					SELECT (payload->>'shipmentId')::bigint FROM outbox
+					WHERE aggregate_id = :id AND event_type = 'ShipmentDelivered'
+					""").param("id", id).query(Long.class).single();
+			String payloadDeliveredAt = jdbc.sql("""
+					SELECT payload->>'deliveredAt' FROM outbox
+					WHERE aggregate_id = :id AND event_type = 'ShipmentDelivered'
+					""").param("id", id).query(String.class).single();
+			java.time.OffsetDateTime deliveredAt = jdbc.sql("""
+					SELECT occurred_at FROM shipment_event
+					WHERE shipment_id = :id AND to_status = 'DELIVERED'
+					""").param("id", id).query(java.time.OffsetDateTime.class).single();
+			assertThat(payloadShipmentId).isEqualTo(id);
+			assertThat(payloadDeliveredAt).isEqualTo(deliveredAt.toString());
 		}
 
 		@Test
-		@DisplayName("중간 전이(PICKED_UP·IN_TRANSIT)는 정산 이벤트를 발행하지 않는다")
+		@DisplayName("중간 전이(PICKED_UP·IN_TRANSIT·OUT_FOR_DELIVERY)는 정산 이벤트를 발행하지 않는다")
 		void intermediatePublishesNothing() throws Exception {
 			long id = seedReadyShipment();
 			transition(id, "PICKED_UP").andExpect(status().isOk());
 			transition(id, "IN_TRANSIT").andExpect(status().isOk());
+			// DELIVERED 직전 상태에서 조기 발행되는 회귀를 잡는다(CR-4).
+			transition(id, "OUT_FOR_DELIVERY").andExpect(status().isOk());
 			assertThat(deliveredCount(id)).isZero();
 		}
 

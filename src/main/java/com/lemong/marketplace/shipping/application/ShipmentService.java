@@ -31,8 +31,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 public class ShipmentService {
 
-	// webmvc 스타터는 일반 ObjectMapper 빈을 노출하지 않는다 — outbox payload 직렬화 전용으로 직접 보유
-	// (payment 선례, thread-safe·재사용 안전).
+	// outbox payload 직렬화 전용 인스턴스. webmvc는 Jackson을 런타임 의존으로만 노출해 직접 보유한다. payment
+	// 선례.
 	private static final ObjectMapper JSON = new ObjectMapper();
 
 	private final OrderForShipping orders;
@@ -75,9 +75,9 @@ public class ShipmentService {
 	 * "더 나중 상태"가 반환될 수 있다(PR #20 리뷰).
 	 *
 	 * <p>
-	 * DELIVERED 도달 시 정산-가능 신호(ShipmentDelivered)를 <b>같은 트랜잭션</b>으로 outbox에
-	 * 적재한다(ADR-016). DELIVERED는 종료 상태라 상태머신이 재진입을 막고 핫로우 락이 동시 전이를 직렬화하므로, 이벤트는 배송당
-	 * 정확히 1회다 (payment의 isPaid no-op과 같은 원리 — uq_outbox_event는 최후 보루).
+	 * DELIVERED 도달 시 정산-가능 신호(ShipmentDelivered)를 같은 트랜잭션으로 outbox에 적재한다(ADR-016).
+	 * DELIVERED는 종료 상태라 상태머신이 재진입을 막고 핫로우 락이 동시 전이를 직렬화하므로 이벤트는 배송당 정확히 1회다.
+	 * payment의 isPaid no-op과 같은 원리이며 uq_outbox_event가 최후 보루다.
 	 *
 	 * @throws ShipmentNotFoundException
 	 *             배송이 없을 때(404)
@@ -87,7 +87,7 @@ public class ShipmentService {
 	public ShipmentView recordTransition(long shipmentId, ShipmentStatus target, OffsetDateTime occurredAt) {
 		// 핫로우 직렬화: 같은 배송에 동시 전이가 오면 한 번에 하나만 통과시킨다. 잠금을 쥔 뒤 상태를 읽어야
 		// READ COMMITTED에서 직전 전이의 커밋분을 본다(잠금 대기 = 앞 트랜잭션 커밋 완료).
-		// order_id·seller_id도 이 잠금에서 함께 읽는다(DELIVERED 이벤트 payload가 셀러 귀속에 쓴다).
+		// order_id·seller_id도 이 잠금에서 함께 읽는다. DELIVERED 이벤트 payload의 셀러 귀속에 쓴다.
 		Locked locked = jdbc.sql("SELECT order_id, seller_id FROM shipment WHERE id = :id FOR UPDATE")
 				.param("id", shipmentId).query((rs, n) -> new Locked(rs.getLong("order_id"), rs.getLong("seller_id")))
 				.optional().orElseThrow(() -> new ShipmentNotFoundException(shipmentId));
@@ -126,8 +126,8 @@ public class ShipmentService {
 		return buildView(shipmentId);
 	}
 
-	// deliveredAt은 ISO-8601 문자열로 싣는다(published 경계는 primitive — jsr310 모듈 의존을 피하고
-	// 소비자 파싱이 단순).
+	// deliveredAt은 ISO-8601 문자열로 싣는다. published 경계는 primitive라 소비자 jsr310 모듈 의존을
+	// 피하고 파싱이 단순하다.
 	private String toDeliveredPayload(long shipmentId, long orderId, long sellerId, OffsetDateTime deliveredAt) {
 		try {
 			return JSON.writeValueAsString(
