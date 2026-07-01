@@ -9,6 +9,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -49,15 +50,14 @@ class ShipmentTransitionConcurrencyIT {
 		return id;
 	}
 
+	// 시작 상태도 raw INSERT가 아니라 도메인 전이로 쌓는다: 실제 이력(sort_key 0..3)이 생기고 경로 자체가
+	// 상태머신 화이트리스트로 검증돼, 전이 규칙 회귀를 픽스처 단계에서 잡는다(CR-1). 중간 전이는 이벤트를 발행하지
+	// 않아 race 전 outbox가 비어 있다.
 	private long seedOutForDelivery() {
-		long id = jdbc.sql("""
-				INSERT INTO shipment (order_id, seller_id, source_event_id, status)
-				VALUES (1, 10, 'evt-race-deliver', 'OUT_FOR_DELIVERY') RETURNING id
-				""").query(Long.class).single();
-		jdbc.sql("""
-				INSERT INTO shipment_event (shipment_id, from_status, to_status, most_recent, sort_key, occurred_at)
-				VALUES (:id, 'IN_TRANSIT', 'OUT_FOR_DELIVERY', TRUE, 3, now())
-				""").param("id", id).update();
+		long id = seedReadyShipment();
+		shipments.recordTransition(id, ShipmentStatus.PICKED_UP, null);
+		shipments.recordTransition(id, ShipmentStatus.IN_TRANSIT, null);
+		shipments.recordTransition(id, ShipmentStatus.OUT_FOR_DELIVERY, null);
 		return id;
 	}
 
@@ -118,7 +118,9 @@ class ShipmentTransitionConcurrencyIT {
 		CountDownLatch start = new CountDownLatch(1);
 		CountDownLatch done = new CountDownLatch(threads);
 		AtomicInteger success = new AtomicInteger();
+		AtomicInteger rejected = new AtomicInteger();
 		AtomicInteger dbFallback = new AtomicInteger();
+		AtomicReference<Throwable> unexpected = new AtomicReference<>();
 
 		try (ExecutorService pool = Executors.newFixedThreadPool(threads)) {
 			for (int i = 0; i < threads; i++) {
@@ -128,12 +130,15 @@ class ShipmentTransitionConcurrencyIT {
 						shipments.recordTransition(id, ShipmentStatus.DELIVERED, null);
 						success.incrementAndGet();
 					} catch (IllegalStateException e) {
-						// 패자는 갱신된 DELIVERED에서 자가 전이로 거부 — 기대됨
+						rejected.incrementAndGet(); // 갱신된 DELIVERED에서 자가 전이 → 기대된 거부
 					} catch (org.springframework.dao.DataIntegrityViolationException e) {
 						// 여기로 오면 직렬화가 깨져 outbox uq(최후보루)로 떨어진 것 = 이중 정산 위험 회귀
 						dbFallback.incrementAndGet();
 					} catch (InterruptedException e) {
 						Thread.currentThread().interrupt();
+						unexpected.compareAndSet(null, e);
+					} catch (Throwable e) {
+						unexpected.compareAndSet(null, e); // 예상 밖 예외로 조용히 죽는 패자를 잡는다(CR-2)
 					} finally {
 						done.countDown();
 					}
@@ -144,6 +149,8 @@ class ShipmentTransitionConcurrencyIT {
 		}
 
 		assertThat(success.get()).isEqualTo(1);
+		assertThat(unexpected.get()).as("패자는 예상된 자가전이 거부 외의 이유로 죽으면 안 된다").isNull();
+		assertThat(rejected.get()).isEqualTo(threads - 1);
 		assertThat(dbFallback.get()).as("정산-가능 이벤트는 핫로우 락으로 정확히 1회 발행되어야 한다(uq 최후보루에 의존 금지)").isZero();
 		// 이중 정산 방지의 핵심 불변식: DELIVERED 이벤트는 배송당 정확히 1건.
 		Long events = jdbc.sql("""
