@@ -58,6 +58,7 @@ class ShipmentTransitionConcurrencyIT {
 		CountDownLatch done = new CountDownLatch(threads);
 		AtomicInteger success = new AtomicInteger();
 		AtomicInteger rejected = new AtomicInteger();
+		AtomicInteger dbFallback = new AtomicInteger();
 
 		try (ExecutorService pool = Executors.newFixedThreadPool(threads)) {
 			for (int i = 0; i < threads; i++) {
@@ -69,7 +70,9 @@ class ShipmentTransitionConcurrencyIT {
 					} catch (IllegalStateException e) {
 						rejected.incrementAndGet(); // 갱신된 상태(PICKED_UP)에서 자가 전이 → 기대된 거부
 					} catch (org.springframework.dao.DataIntegrityViolationException e) {
-						rejected.incrementAndGet(); // 최후 보루(most_recent 부분 UNIQUE)도 거부로 인정
+						// FOR UPDATE 직렬화가 살아있으면 여기로 오지 않는다. 오면 잠금이 깨져 UNIQUE 최후보루로
+						// 떨어진 것 = 회귀. 거부로 세지 않고 아래에서 0을 단언해 테스트를 빨갛게 만든다(PR #20 리뷰).
+						dbFallback.incrementAndGet();
 					} catch (InterruptedException e) {
 						Thread.currentThread().interrupt();
 					} finally {
@@ -82,6 +85,8 @@ class ShipmentTransitionConcurrencyIT {
 		}
 
 		assertThat(success.get()).isEqualTo(1);
+		assertThat(dbFallback.get())
+				.as("FOR UPDATE 직렬화가 살아있으면 패자는 자가전이(IllegalStateException)로 거부되지 UNIQUE 최후보루로 떨어지지 않는다").isZero();
 		assertThat(rejected.get()).isEqualTo(threads - 1);
 
 		// 단 한 번의 전이만 기록됐다: 현재 상태 1건 + 이력 2건(READY, PICKED_UP)

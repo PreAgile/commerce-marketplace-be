@@ -60,6 +60,19 @@ class ShipmentTransitionIT {
 				.content("{\"status\":\"" + status + "\"}"));
 	}
 
+	/** 거부된 전이는 완전한 no-op이어야 한다: 현재 상태·이력 길이 불변, 현재 상태(most_recent)는 여전히 단 하나. */
+	private void assertUnchanged(long id, String expectedStatus, long expectedHistory) {
+		String status = jdbc.sql("SELECT status FROM shipment WHERE id = :id").param("id", id).query(String.class)
+				.single();
+		assertThat(status).isEqualTo(expectedStatus);
+		Long total = jdbc.sql("SELECT count(*) FROM shipment_event WHERE shipment_id = :id").param("id", id)
+				.query(Long.class).single();
+		assertThat(total).isEqualTo(expectedHistory);
+		Long mostRecent = jdbc.sql("SELECT count(*) FROM shipment_event WHERE shipment_id = :id AND most_recent")
+				.param("id", id).query(Long.class).single();
+		assertThat(mostRecent).isEqualTo(1L);
+	}
+
 	@Nested
 	@DisplayName("합법 전이를 기록할 때")
 	class LegalTransitions {
@@ -107,6 +120,7 @@ class ShipmentTransitionIT {
 		void skipRejected() throws Exception {
 			long id = seedReadyShipment();
 			transition(id, "DELIVERED").andExpect(status().isConflict());
+			assertUnchanged(id, "READY", 1);
 		}
 
 		@Test
@@ -115,6 +129,7 @@ class ShipmentTransitionIT {
 			long id = seedReadyShipment();
 			transition(id, "PICKED_UP").andExpect(status().isOk());
 			transition(id, "READY").andExpect(status().isConflict());
+			assertUnchanged(id, "PICKED_UP", 2);
 		}
 
 		@Test
@@ -122,6 +137,7 @@ class ShipmentTransitionIT {
 		void selfRejected() throws Exception {
 			long id = seedReadyShipment();
 			transition(id, "READY").andExpect(status().isConflict());
+			assertUnchanged(id, "READY", 1);
 		}
 
 		@Test
@@ -132,6 +148,7 @@ class ShipmentTransitionIT {
 				transition(id, next).andExpect(status().isOk());
 			}
 			transition(id, "PICKED_UP").andExpect(status().isConflict());
+			assertUnchanged(id, "DELIVERED", 5);
 		}
 	}
 

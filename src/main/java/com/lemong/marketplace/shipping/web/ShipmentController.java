@@ -23,8 +23,7 @@ public class ShipmentController {
 
 	@PostMapping("/{id}/events")
 	public ShipmentView recordEvent(@PathVariable long id, @Valid @RequestBody ShipmentRequests.RecordEvent req) {
-		shipments.recordTransition(id, req.status(), req.occurredAt());
-		return shipments.getShipment(id);
+		return shipments.recordTransition(id, req.status(), req.occurredAt());
 	}
 
 	@GetMapping("/{id}")
