@@ -193,7 +193,9 @@ assertThat(dbFallback.get()).as("FOR UPDATE 직렬화가 살아있으면 UNIQUE 
 **어디서:** `ShipmentRequests.java` line 12. `occurredAt` 기본값 설명은 구현 메모라 §6.4상 `/** */`가 아니라 `//`여야 한다.
 
 **수정 완료:**
+
 ```java
 // occurredAt은 택배사 사건 시각 — 생략하면 서버가 현재로 본다.
 public record RecordEvent(@NotNull ShipmentStatus status, OffsetDateTime occurredAt) {
 ```
+

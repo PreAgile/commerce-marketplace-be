@@ -109,8 +109,6 @@ public class ShipmentService {
 
 	@Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
 	public ShipmentView getShipment(long shipmentId) {
-		// head(status)와 history를 두 SELECT로 읽으므로 READ COMMITTED면 그 사이 커밋된 전이가 끼어 status와
-		// history가 어긋날 수 있다(torn read). REPEATABLE READ로 한 스냅샷에서 읽어 봉합한다(PR #20 리뷰).
 		return buildView(shipmentId);
 	}
 

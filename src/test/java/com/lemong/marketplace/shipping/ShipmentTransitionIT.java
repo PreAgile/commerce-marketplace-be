@@ -60,7 +60,7 @@ class ShipmentTransitionIT {
 				.content("{\"status\":\"" + status + "\"}"));
 	}
 
-	/** 거부된 전이는 완전한 no-op이어야 한다: 현재 상태·이력 길이 불변, 현재 상태(most_recent)는 여전히 단 하나. */
+	// 거부된 전이는 완전한 no-op이어야 한다: 현재 상태·이력 길이 불변, most_recent는 여전히 1건.
 	private void assertUnchanged(long id, String expectedStatus, long expectedHistory) {
 		String status = jdbc.sql("SELECT status FROM shipment WHERE id = :id").param("id", id).query(String.class)
 				.single();
