@@ -34,7 +34,7 @@ class ShipmentTransitionConcurrencyIT {
 
 	@BeforeEach
 	void clean() {
-		jdbc.sql("TRUNCATE TABLE shipment_event, shipment RESTART IDENTITY").update();
+		jdbc.sql("TRUNCATE TABLE outbox, shipment_event, shipment RESTART IDENTITY").update();
 	}
 
 	private long seedReadyShipment() {
@@ -45,6 +45,18 @@ class ShipmentTransitionConcurrencyIT {
 		jdbc.sql("""
 				INSERT INTO shipment_event (shipment_id, from_status, to_status, most_recent, sort_key, occurred_at)
 				VALUES (:id, NULL, 'READY', TRUE, 0, now())
+				""").param("id", id).update();
+		return id;
+	}
+
+	private long seedOutForDelivery() {
+		long id = jdbc.sql("""
+				INSERT INTO shipment (order_id, seller_id, source_event_id, status)
+				VALUES (1, 10, 'evt-race-deliver', 'OUT_FOR_DELIVERY') RETURNING id
+				""").query(Long.class).single();
+		jdbc.sql("""
+				INSERT INTO shipment_event (shipment_id, from_status, to_status, most_recent, sort_key, occurred_at)
+				VALUES (:id, 'IN_TRANSIT', 'OUT_FOR_DELIVERY', TRUE, 3, now())
 				""").param("id", id).update();
 		return id;
 	}
@@ -96,5 +108,48 @@ class ShipmentTransitionConcurrencyIT {
 		Long total = jdbc.sql("SELECT count(*) FROM shipment_event WHERE shipment_id = :id").param("id", id)
 				.query(Long.class).single();
 		assertThat(total).isEqualTo(2L);
+	}
+
+	@Test
+	@DisplayName("16스레드가 동시에 DELIVERED로 전이해도 정산-가능 이벤트는 정확히 1건만 적재된다")
+	void concurrentDeliveredPublishesExactlyOneEvent() throws InterruptedException {
+		long id = seedOutForDelivery();
+		int threads = 16;
+		CountDownLatch start = new CountDownLatch(1);
+		CountDownLatch done = new CountDownLatch(threads);
+		AtomicInteger success = new AtomicInteger();
+		AtomicInteger dbFallback = new AtomicInteger();
+
+		try (ExecutorService pool = Executors.newFixedThreadPool(threads)) {
+			for (int i = 0; i < threads; i++) {
+				pool.submit(() -> {
+					try {
+						start.await();
+						shipments.recordTransition(id, ShipmentStatus.DELIVERED, null);
+						success.incrementAndGet();
+					} catch (IllegalStateException e) {
+						// 패자는 갱신된 DELIVERED에서 자가 전이로 거부 — 기대됨
+					} catch (org.springframework.dao.DataIntegrityViolationException e) {
+						// 여기로 오면 직렬화가 깨져 outbox uq(최후보루)로 떨어진 것 = 이중 정산 위험 회귀
+						dbFallback.incrementAndGet();
+					} catch (InterruptedException e) {
+						Thread.currentThread().interrupt();
+					} finally {
+						done.countDown();
+					}
+				});
+			}
+			start.countDown();
+			done.await();
+		}
+
+		assertThat(success.get()).isEqualTo(1);
+		assertThat(dbFallback.get()).as("정산-가능 이벤트는 핫로우 락으로 정확히 1회 발행되어야 한다(uq 최후보루에 의존 금지)").isZero();
+		// 이중 정산 방지의 핵심 불변식: DELIVERED 이벤트는 배송당 정확히 1건.
+		Long events = jdbc.sql("""
+				SELECT count(*) FROM outbox
+				WHERE aggregate_type = 'shipment' AND aggregate_id = :id AND event_type = 'ShipmentDelivered'
+				""").param("id", id).query(Long.class).single();
+		assertThat(events).isEqualTo(1L);
 	}
 }
