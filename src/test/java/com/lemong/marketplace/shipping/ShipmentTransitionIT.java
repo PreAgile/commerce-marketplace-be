@@ -38,7 +38,7 @@ class ShipmentTransitionIT {
 
 	@BeforeEach
 	void clean() {
-		jdbc.sql("TRUNCATE TABLE shipment_event, shipment RESTART IDENTITY").update();
+		jdbc.sql("TRUNCATE TABLE outbox, shipment_event, shipment RESTART IDENTITY").update();
 		seq = 0;
 	}
 
@@ -175,6 +175,70 @@ class ShipmentTransitionIT {
 			long id = seedReadyShipment();
 			mvc.perform(post("/shipments/" + id + "/events").contentType(MediaType.APPLICATION_JSON).content("{}"))
 					.andExpect(status().isBadRequest());
+		}
+	}
+
+	@Nested
+	@DisplayName("배송완료 시 정산-가능 이벤트를 발행할 때 (M4-a)")
+	class DeliveredEvent {
+
+		private void deliverTo(long id) throws Exception {
+			for (String next : new String[]{"PICKED_UP", "IN_TRANSIT", "OUT_FOR_DELIVERY", "DELIVERED"}) {
+				transition(id, next).andExpect(status().isOk());
+			}
+		}
+
+		private long deliveredCount(long id) {
+			return jdbc.sql("""
+					SELECT count(*) FROM outbox
+					WHERE aggregate_type = 'shipment' AND aggregate_id = :id AND event_type = 'ShipmentDelivered'
+					""").param("id", id).query(Long.class).single();
+		}
+
+		@Test
+		@DisplayName("DELIVERED 도달 시 ShipmentDelivered 1건이 셀러 귀속 식별자를 담아 적재된다")
+		void deliveredPublishes() throws Exception {
+			long id = seedReadyShipment(); // order_id=1, seller_id=10
+			deliverTo(id);
+
+			assertThat(deliveredCount(id)).isEqualTo(1L);
+			Long orderId = jdbc.sql("""
+					SELECT (payload->>'orderId')::bigint FROM outbox
+					WHERE aggregate_id = :id AND event_type = 'ShipmentDelivered'
+					""").param("id", id).query(Long.class).single();
+			Long sellerId = jdbc.sql("""
+					SELECT (payload->>'sellerId')::bigint FROM outbox
+					WHERE aggregate_id = :id AND event_type = 'ShipmentDelivered'
+					""").param("id", id).query(Long.class).single();
+			assertThat(orderId).isEqualTo(1L);
+			assertThat(sellerId).isEqualTo(10L);
+		}
+
+		@Test
+		@DisplayName("중간 전이(PICKED_UP·IN_TRANSIT)는 정산 이벤트를 발행하지 않는다")
+		void intermediatePublishesNothing() throws Exception {
+			long id = seedReadyShipment();
+			transition(id, "PICKED_UP").andExpect(status().isOk());
+			transition(id, "IN_TRANSIT").andExpect(status().isOk());
+			assertThat(deliveredCount(id)).isZero();
+		}
+
+		@Test
+		@DisplayName("FAILED는 정산-가능이 아니므로 이벤트를 발행하지 않는다")
+		void failedPublishesNothing() throws Exception {
+			long id = seedReadyShipment();
+			transition(id, "PICKED_UP").andExpect(status().isOk());
+			transition(id, "FAILED").andExpect(status().isOk());
+			assertThat(deliveredCount(id)).isZero();
+		}
+
+		@Test
+		@DisplayName("이미 DELIVERED인데 다시 전이하면 409이고 이벤트는 여전히 1건이다")
+		void redeliverDoesNotDoublePublish() throws Exception {
+			long id = seedReadyShipment();
+			deliverTo(id);
+			transition(id, "DELIVERED").andExpect(status().isConflict());
+			assertThat(deliveredCount(id)).isEqualTo(1L);
 		}
 	}
 }

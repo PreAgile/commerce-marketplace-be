@@ -1,5 +1,8 @@
 package com.lemong.marketplace.shipping.application;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lemong.marketplace.common.outbox.OutboxAppender;
 import com.lemong.marketplace.order.published.OrderForShipping;
 import com.lemong.marketplace.shipping.application.ShipmentView.Transition;
 import com.lemong.marketplace.shipping.domain.ShipmentStatus;
@@ -28,12 +31,18 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 public class ShipmentService {
 
+	// webmvc 스타터는 일반 ObjectMapper 빈을 노출하지 않는다 — outbox payload 직렬화 전용으로 직접 보유
+	// (payment 선례, thread-safe·재사용 안전).
+	private static final ObjectMapper JSON = new ObjectMapper();
+
 	private final OrderForShipping orders;
 	private final JdbcClient jdbc;
+	private final OutboxAppender outbox;
 
-	public ShipmentService(OrderForShipping orders, JdbcClient jdbc) {
+	public ShipmentService(OrderForShipping orders, JdbcClient jdbc, OutboxAppender outbox) {
 		this.orders = orders;
 		this.jdbc = jdbc;
+		this.outbox = outbox;
 	}
 
 	public void createForPaymentConfirmed(long orderId, String sourceEventId) {
@@ -65,6 +74,11 @@ public class ShipmentService {
 	 * 응답을 잠금을 쥔 이 트랜잭션 안에서 조립한다(read-your-writes). 커밋 후 별도 조회로 만들면 그 사이 끼어든 다른 전이의
 	 * "더 나중 상태"가 반환될 수 있다(PR #20 리뷰).
 	 *
+	 * <p>
+	 * DELIVERED 도달 시 정산-가능 신호(ShipmentDelivered)를 <b>같은 트랜잭션</b>으로 outbox에
+	 * 적재한다(ADR-016). DELIVERED는 종료 상태라 상태머신이 재진입을 막고 핫로우 락이 동시 전이를 직렬화하므로, 이벤트는 배송당
+	 * 정확히 1회다 (payment의 isPaid no-op과 같은 원리 — uq_outbox_event는 최후 보루).
+	 *
 	 * @throws ShipmentNotFoundException
 	 *             배송이 없을 때(404)
 	 * @throws IllegalStateException
@@ -73,11 +87,10 @@ public class ShipmentService {
 	public ShipmentView recordTransition(long shipmentId, ShipmentStatus target, OffsetDateTime occurredAt) {
 		// 핫로우 직렬화: 같은 배송에 동시 전이가 오면 한 번에 하나만 통과시킨다. 잠금을 쥔 뒤 상태를 읽어야
 		// READ COMMITTED에서 직전 전이의 커밋분을 본다(잠금 대기 = 앞 트랜잭션 커밋 완료).
-		boolean exists = jdbc.sql("SELECT 1 FROM shipment WHERE id = :id FOR UPDATE").param("id", shipmentId)
-				.query(Integer.class).optional().isPresent();
-		if (!exists) {
-			throw new ShipmentNotFoundException(shipmentId);
-		}
+		// order_id·seller_id도 이 잠금에서 함께 읽는다(DELIVERED 이벤트 payload가 셀러 귀속에 쓴다).
+		Locked locked = jdbc.sql("SELECT order_id, seller_id FROM shipment WHERE id = :id FOR UPDATE")
+				.param("id", shipmentId).query((rs, n) -> new Locked(rs.getLong("order_id"), rs.getLong("seller_id")))
+				.optional().orElseThrow(() -> new ShipmentNotFoundException(shipmentId));
 
 		Current current = jdbc.sql("""
 				SELECT to_status, sort_key FROM shipment_event
@@ -96,15 +109,32 @@ public class ShipmentService {
 
 		jdbc.sql("UPDATE shipment_event SET most_recent = FALSE WHERE shipment_id = :id AND most_recent")
 				.param("id", shipmentId).update();
-		jdbc.sql("""
+		OffsetDateTime occurred = jdbc.sql("""
 				INSERT INTO shipment_event (shipment_id, from_status, to_status, most_recent, sort_key, occurred_at)
 				VALUES (:id, :from, :to, TRUE, :sk, COALESCE(:at, now()))
+				RETURNING occurred_at
 				""").param("id", shipmentId).param("from", current.status().name()).param("to", target.name())
-				.param("sk", current.sortKey() + 1).param("at", occurredAt).update();
+				.param("sk", current.sortKey() + 1).param("at", occurredAt).query(OffsetDateTime.class).single();
 		jdbc.sql("UPDATE shipment SET status = :to WHERE id = :id").param("to", target.name()).param("id", shipmentId)
 				.update();
 
+		if (target == ShipmentStatus.DELIVERED) {
+			outbox.append("shipment", shipmentId, "ShipmentDelivered",
+					toDeliveredPayload(shipmentId, locked.orderId(), locked.sellerId(), occurred));
+		}
+
 		return buildView(shipmentId);
+	}
+
+	// deliveredAt은 ISO-8601 문자열로 싣는다(published 경계는 primitive — jsr310 모듈 의존을 피하고
+	// 소비자 파싱이 단순).
+	private String toDeliveredPayload(long shipmentId, long orderId, long sellerId, OffsetDateTime deliveredAt) {
+		try {
+			return JSON.writeValueAsString(
+					new ShipmentDeliveredEvent(shipmentId, orderId, sellerId, deliveredAt.toString()));
+		} catch (JsonProcessingException e) {
+			throw new IllegalStateException("ShipmentDelivered payload 직렬화 실패: shipment=" + shipmentId, e);
+		}
 	}
 
 	@Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
@@ -131,5 +161,11 @@ public class ShipmentService {
 	}
 
 	private record Current(ShipmentStatus status, int sortKey) {
+	}
+
+	private record Locked(long orderId, long sellerId) {
+	}
+
+	private record ShipmentDeliveredEvent(long shipmentId, long orderId, long sellerId, String deliveredAt) {
 	}
 }
