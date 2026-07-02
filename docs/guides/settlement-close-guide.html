@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>정산 마감 시스템 — 개념 정리</title>
+</head>
+<body>
+<style>
+  :root {
+    --paper: #F6F8FA;
+    --panel: #FFFFFF;
+    --ink: #172230;
+    --muted: #5C6B7A;
+    --faint: #8A97A4;
+    --line: #E1E7ED;
+    --accent: #0E6E7C;
+    --accent-soft: #DFEFF0;
+    --pos: #1F7A4D;
+    --pos-soft: #E5F3EB;
+    --neg: #B14A32;
+    --neg-soft: #F7E9E3;
+    --pend: #A9761A;
+    --pend-soft: #F6EDD8;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; }
+  .page {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; padding: clamp(1.4rem, 4vw, 3.5rem) clamp(1.1rem, 4vw, 2rem) 5rem; }
+
+  /* ---- typography ---- */
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: .72rem;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 .5rem;
+  }
+  h1 { font-size: clamp(1.9rem, 5vw, 3rem); line-height: 1.1; margin: 0 0 .6rem; letter-spacing: -.02em; text-wrap: balance; }
+  h2 { font-size: clamp(1.35rem, 3.4vw, 1.85rem); line-height: 1.2; margin: 0 0 .4rem; letter-spacing: -.015em; text-wrap: balance; }
+  h3 { font-size: 1.02rem; margin: 0 0 .35rem; letter-spacing: -.01em; }
+  p { margin: 0 0 .9rem; max-width: 68ch; }
+  .lead { font-size: 1.12rem; color: #33414f; max-width: 64ch; }
+  strong { font-weight: 650; }
+  .mono { font-family: var(--mono); }
+  code {
+    font-family: var(--mono); font-size: .86em;
+    background: #eef2f5; padding: .08em .34em; border-radius: 4px; color: #294050;
+  }
+
+  header.hero { padding-bottom: 1.2rem; border-bottom: 1px solid var(--line); margin-bottom: 2.8rem; }
+  .hero .sub { color: var(--muted); max-width: 60ch; }
+
+  section { margin-top: 3.2rem; }
+  .sec-head { display: flex; align-items: baseline; gap: .8rem; margin-bottom: 1.2rem; }
+  .sec-num {
+    font-family: var(--mono); font-size: .78rem; color: var(--accent);
+    border: 1px solid var(--accent); border-radius: 999px;
+    padding: .12rem .5rem; flex: none; letter-spacing: .04em;
+  }
+
+  .panel {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 1.3rem 1.4rem; box-shadow: 0 1px 2px rgba(23,34,48,.04), 0 6px 22px rgba(23,34,48,.04);
+  }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  @media (max-width: 680px) { .grid2 { grid-template-columns: 1fr; } }
+
+  /* ---- money split ---- */
+  .split { display: grid; grid-template-columns: auto 1fr; gap: 1rem 1.4rem; align-items: center; }
+  @media (max-width: 620px) { .split { grid-template-columns: 1fr; } }
+  .split-total {
+    font-family: var(--mono); text-align: center; padding: 1rem 1.2rem;
+    border: 1.5px dashed var(--accent); border-radius: 10px; background: var(--accent-soft);
+    align-self: stretch; display: flex; flex-direction: column; justify-content: center;
+  }
+  .split-total b { font-size: 1.7rem; letter-spacing: -.02em; color: var(--accent); }
+  .split-total span { font-size: .74rem; color: var(--muted); letter-spacing: .04em; }
+  .split-rows { display: flex; flex-direction: column; gap: .5rem; }
+  .srow {
+    display: grid; grid-template-columns: 4.2rem 1fr auto; gap: .7rem; align-items: baseline;
+    font-family: var(--mono); font-size: .9rem; padding: .55rem .75rem; border-radius: 8px; background: #f3f6f8;
+  }
+  .srow .who { font-weight: 650; }
+  .srow .calc { color: var(--muted); font-size: .82rem; }
+  .srow .net { font-variant-numeric: tabular-nums; font-weight: 650; text-align: right; }
+  .srow.a { box-shadow: inset 3px 0 0 var(--pos); }
+  .srow.b { box-shadow: inset 3px 0 0 var(--pos); }
+  .srow.plat { box-shadow: inset 3px 0 0 var(--neg); background: #f7f2f0; }
+
+  /* ---- data tables ---- */
+  .tscroll { overflow-x: auto; margin: .2rem 0 .4rem; }
+  table.data { border-collapse: collapse; width: 100%; font-family: var(--mono); font-size: .82rem; }
+  table.data caption {
+    font-family: var(--mono); text-align: left; font-size: .74rem; letter-spacing: .06em;
+    text-transform: uppercase; color: var(--faint); padding-bottom: .5rem;
+  }
+  table.data th {
+    text-align: left; font-weight: 600; color: var(--muted); font-size: .72rem;
+    letter-spacing: .04em; text-transform: uppercase; padding: .4rem .6rem; border-bottom: 1.5px solid var(--line);
+    white-space: nowrap;
+  }
+  table.data td { padding: .42rem .6rem; border-bottom: 1px solid #eef2f5; white-space: nowrap; }
+  table.data td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .amt-pos { color: var(--pos); font-weight: 650; }
+  .amt-neg { color: var(--neg); font-weight: 650; }
+  .cell {
+    display: inline-block; padding: .05rem .45rem; border-radius: 5px; font-weight: 650; font-size: .78rem;
+  }
+  .cell.null { background: var(--pend-soft); color: var(--pend); }
+  .cell.cyc { background: var(--accent-soft); color: var(--accent); }
+  .tag {
+    display: inline-block; font-family: var(--mono); font-size: .68rem; letter-spacing: .05em;
+    padding: .1rem .45rem; border-radius: 5px; font-weight: 650; text-transform: uppercase;
+  }
+  .tag.sale { background: var(--pos-soft); color: var(--pos); }
+  .tag.comm { background: var(--neg-soft); color: var(--neg); }
+  .tag.closed { background: var(--accent-soft); color: var(--accent); }
+
+  /* ---- flow ---- */
+  .flow { display: flex; flex-direction: column; gap: 0; }
+  .fstep { display: grid; grid-template-columns: 2.4rem 1fr; gap: 1rem; }
+  .fstep .rail { display: flex; flex-direction: column; align-items: center; }
+  .fstep .dot {
+    width: 2.4rem; height: 2.4rem; border-radius: 50%; flex: none;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono); font-weight: 650; font-size: .95rem;
+    background: var(--panel); border: 1.5px solid var(--line); color: var(--muted);
+  }
+  .fstep.mine .dot { border-color: var(--accent); background: var(--accent); color: #fff; }
+  .fstep .line { width: 2px; flex: 1; background: var(--line); min-height: 1rem; }
+  .fstep:last-child .line { display: none; }
+  .fstep .body { padding-bottom: 1.5rem; }
+  .fstep .body h3 { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+  .badge {
+    font-family: var(--mono); font-size: .64rem; letter-spacing: .06em; text-transform: uppercase;
+    background: var(--accent); color: #fff; padding: .1rem .45rem; border-radius: 5px; font-weight: 650;
+  }
+  .badge.ghost { background: #eef2f5; color: var(--muted); }
+  .fstep .body p { margin: .2rem 0 0; color: var(--muted); font-size: .92rem; }
+
+  /* ---- snapshots ---- */
+  .snaps { display: grid; grid-template-columns: 1fr; gap: 1rem; }
+  .snap { position: relative; }
+  .snap .when {
+    font-family: var(--mono); font-size: .72rem; letter-spacing: .05em; color: var(--accent);
+    text-transform: uppercase; margin-bottom: .7rem; font-weight: 650;
+  }
+  .arrow-down { text-align: center; color: var(--accent); font-family: var(--mono); font-size: 1.3rem; line-height: 1; margin: -.2rem 0; }
+
+  /* ---- guards ---- */
+  .guards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+  @media (max-width: 760px) { .guards { grid-template-columns: 1fr; } }
+  .guard h3 { font-family: var(--mono); font-size: .82rem; color: var(--accent); letter-spacing: .02em; }
+  .guard .mech {
+    display: inline-block; font-family: var(--mono); font-size: .7rem; background: #eef2f5;
+    padding: .15rem .5rem; border-radius: 5px; color: #33414f; margin-bottom: .6rem; margin-top: .3rem;
+  }
+  .guard p { font-size: .88rem; color: var(--muted); margin: 0; }
+
+  /* ---- code block ---- */
+  pre {
+    font-family: var(--mono); font-size: .8rem; line-height: 1.55; background: #10202a; color: #d6e2e6;
+    padding: 1rem 1.1rem; border-radius: 10px; overflow-x: auto; margin: .4rem 0 0;
+  }
+  pre .k { color: #7fd0c4; }
+  pre .c { color: #6b8494; font-style: italic; }
+  pre .n { color: #e0b877; }
+
+  .callout {
+    display: grid; grid-template-columns: auto 1fr; gap: 1rem; align-items: start;
+    background: var(--accent); color: #eafafb; border-radius: 12px; padding: 1.3rem 1.5rem; margin-top: 1.2rem;
+  }
+  .callout .mk { font-family: var(--mono); font-size: 1.5rem; line-height: 1; opacity: .8; }
+  .callout p { margin: 0; max-width: none; color: #eafafb; }
+  .callout strong { color: #fff; }
+
+  .note { font-size: .88rem; color: var(--muted); }
+  .kv { display: flex; gap: .5rem; align-items: baseline; font-size: .9rem; margin: .15rem 0; }
+  .kv .k { font-family: var(--mono); font-size: .78rem; color: var(--accent); flex: none; min-width: 8.5rem; }
+
+  footer { margin-top: 4rem; padding-top: 1.4rem; border-top: 1px solid var(--line); color: var(--faint); font-size: .82rem; }
+  footer .mono { color: var(--muted); }
+</style>
+
+<div class="page">
+<div class="wrap">
+
+  <header class="hero">
+    <p class="eyebrow">Settlement · M4-c</p>
+    <h1>정산 마감, 테이블과 흐름으로 이해하기</h1>
+    <p class="lead sub">멀티셀러 마켓에서 “누구에게 얼마 줄지”를 <strong>부호 있는 원장</strong>에 쌓고, 주기 단위 <strong>봉투(cycle)</strong>에 담아 확정하는 구조. 이번 작업이 만든 “마감(close)”과 “조회”를 실제 숫자로 따라갑니다.</p>
+  </header>
+
+  <!-- 1 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">01</span><h2>정산이란 — 돈의 주인이 갈린다</h2></div>
+    <p>구매자가 한 주문에 셀러 A(1,000원)와 셀러 B(2,000원) 상품을 담아 <strong>3,000원</strong>을 결제하면, 그 돈은 플랫폼이 일단 다 받습니다. 하지만 대부분 셀러 몫이라 나중에 <strong>(매출 − 수수료)</strong>를 셀러별로 계산해 지급합니다. 이 계산·확정이 <strong>정산</strong>입니다.</p>
+    <div class="panel">
+      <div class="split">
+        <div class="split-total"><b>₩3,000</b><span>결제 · 플랫폼 일괄 수령</span></div>
+        <div class="split-rows">
+          <div class="srow a"><span class="who">셀러 A</span><span class="calc">매출 1,000 − 수수료 10% (100)</span><span class="net">₩900</span></div>
+          <div class="srow b"><span class="who">셀러 B</span><span class="calc">매출 2,000 − 수수료 15% (300)</span><span class="net">₩1,700</span></div>
+          <div class="srow plat"><span class="who">플랫폼</span><span class="calc">수수료 100 + 300</span><span class="net">₩400</span></div>
+        </div>
+      </div>
+    </div>
+    <p class="note" style="margin-top:.9rem">실무에서는 배송 한 건마다 즉시 송금하지 않고 <strong>주·월 단위로 모아서</strong> 지급합니다. 그 주기를 끊고 안의 돈을 확정하는 것이 <strong>마감(close)</strong> — 이번 작업의 핵심입니다.</p>
+  </section>
+
+  <!-- 2 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">02</span><h2>테이블 두 개 — 원장과 봉투</h2></div>
+    <div class="grid2">
+      <div class="panel">
+        <h3><code>settlement_line</code> · 원장(ledger)</h3>
+        <p class="note">돈 사실을 <strong>부호 있는 줄</strong>로 한 개씩 쌓습니다. 매출 <span class="tag sale">SALE +</span> 수수료 <span class="tag comm">COMMISSION −</span></p>
+        <div class="tscroll">
+          <table class="data">
+            <thead><tr><th>seller</th><th>entry_type</th><th>amount</th><th>cycle_id</th></tr></thead>
+            <tbody>
+              <tr><td>A</td><td><span class="tag sale">SALE</span></td><td class="num amt-pos">+1,000</td><td><span class="cell null">NULL</span></td></tr>
+              <tr><td>A</td><td><span class="tag comm">COMMISSION</span></td><td class="num amt-neg">−100</td><td><span class="cell null">NULL</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="note"><strong>잔액 컬럼이 없습니다.</strong> 셀러 순지급은 <code>SUM(amount_minor)</code>로 도출 → 여기선 <span class="mono amt-pos">1,000</span> + <span class="mono amt-neg">(−100)</span> = <strong class="mono">900</strong>. 정정도 UPDATE가 아니라 반대 부호 줄을 <em>추가</em>합니다(회계 장부 원리). 부호 규칙은 코드가 아니라 DB <code>CHECK</code>가 강제합니다.</p>
+      </div>
+      <div class="panel">
+        <h3><code>settlement_cycle</code> · 봉투(주기)</h3>
+        <p class="note">셀러별 정산 주기를 나타내는 껍데기. 기간 <code>[start, end)</code> 과 상태를 가집니다.</p>
+        <div class="tscroll">
+          <table class="data">
+            <thead><tr><th>cycle_id</th><th>seller</th><th>type</th><th>period</th><th>status</th></tr></thead>
+            <tbody>
+              <tr><td>1</td><td>A</td><td>weekly</td><td>06-01 ~ 06-08</td><td><span class="tag closed">CLOSED</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="note">“셀러 A의 6월 1주차 봉투”. 마감하면 원장 줄들이 이 봉투에 담깁니다(줄의 <code>cycle_id</code>가 이 봉투를 가리킴). <strong>기간 겹침 금지(EXCLUDE)</strong> 제약이 같은 셀러·유형의 겹치는 봉투를 DB에서 거부 → 매출 이중 집계 차단.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">03</span><h2>전체 흐름 — 배송완료부터 조회까지</h2></div>
+    <div class="panel">
+      <div class="flow">
+        <div class="fstep">
+          <div class="rail"><div class="dot">✓</div><div class="line"></div></div>
+          <div class="body"><h3>배송완료 <span class="tag" style="background:#eef2f5;color:var(--muted)">shipping BC</span></h3>
+            <p><code>ShipmentDelivered</code> 이벤트를 outbox로 발행.</p></div>
+        </div>
+        <div class="fstep">
+          <div class="rail"><div class="dot">1</div><div class="line"></div></div>
+          <div class="body"><h3>정산 줄 적재 <span class="badge ghost">M4-b</span></h3>
+            <p>이벤트 소비 → 셀러 매출·수수료율 조회 → <span class="tag sale">SALE +1,000</span> <span class="tag comm">COMMISSION −100</span> 줄 append. 이때 <code>cycle_id = NULL</code> — 아직 어느 봉투에도 안 담긴 <strong>미정산</strong> 상태.</p></div>
+        </div>
+        <div class="fstep mine">
+          <div class="rail"><div class="dot">2</div><div class="line"></div></div>
+          <div class="body"><h3>마감 배치 <span class="badge">이번 PR</span></h3>
+            <p><code>POST /admin/settlements/run {weekly, 06-01, 06-08}</code> → NULL로 떠 있던 줄들을 셀러별 봉투에 담고 CLOSED.</p></div>
+        </div>
+        <div class="fstep mine">
+          <div class="rail"><div class="dot">3</div></div>
+          <div class="body"><h3>셀러 조회 <span class="badge">이번 PR</span></h3>
+            <p><code>GET /sellers/A/settlements</code> → 봉투별 순지급 + 아직 안 담긴 pending을 한 화면으로.</p></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">04</span><h2>테이블 상태 변화 — 마감이 실제로 하는 일</h2></div>
+    <p>마감은 <strong>금액을 단 1원도 만들거나 옮기지 않습니다.</strong> 오직 원장 줄의 <code>cycle_id</code>를 <span class="cell null">NULL</span> → <span class="cell cyc">1</span> 로 채워 “소속을 확정”할 뿐입니다.</p>
+    <div class="snaps">
+      <div class="panel snap">
+        <div class="when">▸ 마감 전 (배송완료 직후)</div>
+        <div class="tscroll">
+          <table class="data">
+            <caption>settlement_line</caption>
+            <thead><tr><th>line</th><th>seller</th><th>entry_type</th><th>amount</th><th>eligible_at</th><th>cycle_id</th></tr></thead>
+            <tbody>
+              <tr><td>1</td><td>A</td><td><span class="tag sale">SALE</span></td><td class="num amt-pos">+1,000</td><td>06-02</td><td><span class="cell null">NULL</span></td></tr>
+              <tr><td>2</td><td>A</td><td><span class="tag comm">COMMISSION</span></td><td class="num amt-neg">−100</td><td>06-02</td><td><span class="cell null">NULL</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="note" style="margin:.3rem 0 0">봉투는 아직 없음. <code>cycle_id = NULL</code> = “열려 있는(pending) 돈”.</p>
+      </div>
+      <div class="arrow-down">↓ &nbsp;<span class="mono" style="font-size:.72rem;letter-spacing:.04em">run(weekly, 06-01, 06-08)</span>&nbsp; ↓</div>
+      <div class="panel snap">
+        <div class="when">▸ 마감 후</div>
+        <div class="tscroll">
+          <table class="data">
+            <caption>settlement_cycle · 봉투 생성</caption>
+            <thead><tr><th>cycle_id</th><th>seller</th><th>type</th><th>period</th><th>status</th></tr></thead>
+            <tbody><tr><td><span class="cell cyc">1</span></td><td>A</td><td>weekly</td><td>06-01 ~ 06-08</td><td><span class="tag closed">CLOSED</span></td></tr></tbody>
+          </table>
+        </div>
+        <div class="tscroll" style="margin-top:.7rem">
+          <table class="data">
+            <caption>settlement_line · cycle_id 채워짐</caption>
+            <thead><tr><th>line</th><th>seller</th><th>entry_type</th><th>amount</th><th>eligible_at</th><th>cycle_id</th></tr></thead>
+            <tbody>
+              <tr><td>1</td><td>A</td><td><span class="tag sale">SALE</span></td><td class="num amt-pos">+1,000</td><td>06-02</td><td><span class="cell cyc">1</span></td></tr>
+              <tr><td>2</td><td>A</td><td><span class="tag comm">COMMISSION</span></td><td class="num amt-neg">−100</td><td>06-02</td><td><span class="cell cyc">1</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="note" style="margin:.5rem 0 0">봉투 1의 순지급 = <code>SUM</code> = <strong class="mono">900</strong>. 금액은 그대로, <code>cycle_id</code>만 바뀜.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">05</span><h2>마감 로직 &amp; “열림/닫힘”의 진짜 의미</h2></div>
+    <div class="grid2">
+      <div class="panel">
+        <h3>세 걸음 (<code>SettlementCloseService.run</code>)</h3>
+        <div class="kv"><span class="k">① 대상 셀러</span><span><code>cycle_id IS NULL AND eligible_at &lt; end</code> 인 줄이 있는 셀러들 (락 순서 <code>ORDER BY seller_id</code>)</span></div>
+        <div class="kv"><span class="k">② 봉투 + 담기</span><span>셀러별 <code>settlement_cycle</code> INSERT(바로 CLOSED) + <code>UPDATE ... SET cycle_id WHERE cycle_id IS NULL</code></span></div>
+        <div class="kv"><span class="k">③ 요약</span><span>봉투별 순지급 <code>SUM</code> 을 응답으로 반환</span></div>
+      </div>
+      <div class="panel">
+        <h3>eager 대신 <strong>deferred</strong> 를 택했다</h3>
+        <p class="note">봉투를 미리 <code>OPEN</code>으로 열어두지 않습니다. 줄은 <code>cycle_id=NULL</code>로 그냥 떠 있고(=사실상 “열린” 상태), 마감이 그 NULL 줄들을 쓸어 담아 <strong>바로 CLOSED 봉투</strong>를 만듭니다.</p>
+        <p class="note" style="margin-top:.6rem"><strong>왜?</strong> 배송완료 핫패스는 “줄 하나 넣기”만 하면 되고, “언제·어떤 주기로 끊을지”는 마감 배치로 분리됩니다. 덤으로 유입과 마감이 같은 봉투를 두고 경합할 일이 사라집니다.</p>
+      </div>
+    </div>
+    <div class="panel" style="margin-top:1rem">
+      <h3>cutoff 스윕 — 늦게 온 줄을 안 잃어버린다</h3>
+      <p class="note">대상 조건에 하한(<code>eligible_at &gt;= start</code>)을 두면, 택배사 콜백 지연으로 <strong>마감 후 도착한 줄</strong>이 이미 닫힌 봉투(재마감 불가)에 못 들어가 <strong>영구 고립</strong>됩니다. 그래서 하한을 없애고 <code>eligible_at &lt; end</code> 만 봅니다(cutoff). 늦은 줄은 NULL로 남아 <strong>다음 마감이 자연히 흡수</strong> — 정산이 한 주기 밀릴 뿐 돈은 안 잃습니다.</p>
+    </div>
+  </section>
+
+  <!-- 6 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">06</span><h2>동시성 방어 — 코드 if가 아니라 DB 구조로</h2></div>
+    <p>돈이라 “동시에 두 번 마감해도 이중 지급 없음”이 필수. 세 겹으로 막습니다.</p>
+    <div class="guards">
+      <div class="panel guard">
+        <h3>① 봉투 이중 생성</h3>
+        <div class="mech">EXCLUDE (GiST)</div>
+        <p>같은 셀러·유형·겹치는 기간의 두 번째 봉투 INSERT를 DB가 거부. 재실행·동시 실행 모두 <strong>봉투는 1개</strong>. 배치 전체 롤백이라 부분 마감도 없음.</p>
+      </div>
+      <div class="panel guard">
+        <h3>② 줄 이중 귀속</h3>
+        <div class="mech">WHERE cycle_id IS NULL</div>
+        <p>한 마감이 줄을 담으면(cycle_id 채워짐) 다른 마감의 <code>UPDATE ... WHERE cycle_id IS NULL</code>은 그 줄을 <strong>더 못 건드림</strong>. 조건부 UPDATE의 배타락이 직렬화.</p>
+      </div>
+      <div class="panel guard">
+        <h3>③ 고스트 봉투 <span class="tag" style="background:var(--neg-soft);color:var(--neg)">리뷰 적중</span></h3>
+        <div class="mech">assigned == 0 → DELETE</div>
+        <p>EXCLUDE 키에 <code>cycle_type</code>이 있어 <strong>유형이 다르면</strong>(weekly·express) 안 막힘 → 늦은 쪽이 줄 0개 빈 봉투를 남김. 담긴 줄 0이면 방금 만든 봉투를 되돌림.</p>
+      </div>
+    </div>
+    <p class="note" style="margin-top:1rem">③은 CodeRabbit이 Major로 지적한 실제 버그. 가드를 뺀 채 <strong>8스레드 크로스-타입 동시 마감으로 8/8 재현</strong>해 반례를 테스트로 박제한 뒤 고쳤습니다.</p>
+  </section>
+
+  <!-- 7 -->
+  <section>
+    <div class="sec-head"><span class="sec-num">07</span><h2>조회 — 셀러가 자기 정산을 본다</h2></div>
+    <div class="grid2">
+      <div class="panel">
+        <h3><code>GET /sellers/A/settlements</code></h3>
+<pre><span class="c">// 마감분(봉투별) + 아직 안 담긴 pending</span>
+{
+  <span class="k">"sellerId"</span>: <span class="n">10</span>,
+  <span class="k">"cycles"</span>: [
+    { <span class="k">"cycleId"</span>: <span class="n">1</span>, <span class="k">"status"</span>: <span class="n">"CLOSED"</span>,
+      <span class="k">"lineCount"</span>: <span class="n">2</span>, <span class="k">"netMinor"</span>: <span class="n">850</span> }
+  ],
+  <span class="k">"pendingNetMinor"</span>: <span class="n">360</span>,
+  <span class="k">"totalNetMinor"</span>: <span class="n">1210</span>
+}</pre>
+      </div>
+      <div class="panel">
+        <h3>세 값 모두 SUM 도출</h3>
+        <div class="kv"><span class="k">cycles[].netMinor</span><span>마감된 봉투별 순지급 = 그 봉투 줄들의 <code>SUM</code></span></div>
+        <div class="kv"><span class="k">pendingNetMinor</span><span>아직 <code>cycle_id=NULL</code> 인 줄들의 합 = “열려 있는” 돈</span></div>
+        <div class="kv"><span class="k">totalNetMinor</span><span>850 + 360 = 1,210 (전체 원장 순액)</span></div>
+        <p class="note" style="margin-top:.7rem">두 값을 <strong>한 스냅샷(REPEATABLE READ)</strong> 에서 읽어, 조회 도중 마감이 끼어들어 “봉투엔 담겼는데 pending에도 세는” 모순을 막습니다.</p>
+      </div>
+    </div>
+  </section>
+
+  <div class="callout">
+    <div class="mk">↹</div>
+    <p><strong>한 줄 요약.</strong> 정산 = 셀러별 (매출 − 수수료)를 부호 원장에 줄로 쌓고, 주기 단위 봉투(cycle)에 담아 확정하는 것. 이번 작업은 그 “담아 확정(마감)”과 “조회”를 만들었고 — 돈이라 <strong>이중 마감·이중 집계·고스트 봉투를 EXCLUDE·조건부 UPDATE·가드로 구조적으로 봉쇄</strong>한 게 핵심입니다.</p>
+  </div>
+
+  <footer>
+    <span class="mono">PR #24 · M4-c</span> — 정산 사이클 마감 배치 + 셀러 조회 · 배경 결정은 decision-log ADR-018, 리뷰 재판정은 docs/pr-reviews/pr-24-settlement-cycle-close.md
+  </footer>
+
+</div>
+</div>
+
+</body>
+</html>
