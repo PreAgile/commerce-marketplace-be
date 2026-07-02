@@ -38,6 +38,7 @@
 - [ ] **실시간 배송 추적 + 지도** — 배송 이벤트 스트리밍, 위치 시각화
 
 ### 인프라·스케일 진화 ([`design/implementation-spec.md`](./design/implementation-spec.md) §7)
+- [x] **정산 사이클 마감 배치**(M4-c) — 미배정 라인 cutoff 스윕 → 셀러별 사이클 귀속, EXCLUDE + 조건부 UPDATE 직렬화, 셀러 정산 조회 읽기 모델([decision-log ADR-018](./ai-collaboration/decision-log.md)). *남은 스코프*: late-arrival 이월(`CARRIED_OVER`)·스케줄 자동 마감·payout 게이트
 - [ ] **부하 실측** — 핫로우 락·outbox lag knee를 그래프로(§7-3b)
 - [ ] **첫 서비스 추출** — 측정이 정당화하는 서비스(정산/재고)를 별 프로세스+별 DB로, before/after 실측
 - [ ] **이벤트 인프라** — outbox 릴레이 → Kafka, 파티셔닝
