@@ -33,48 +33,34 @@ class PaymentConstraintsIT {
 
 	@BeforeEach
 	void clean() {
-		jdbc.sql("TRUNCATE TABLE payment RESTART IDENTITY").update();
+		jdbc.sql("TRUNCATE TABLE refund, payment RESTART IDENTITY CASCADE").update();
 	}
 
-	private int insertPayment(String idempotencyKey, long paid, long refunded, String status) {
+	// 누적환불 상한·미결제 환불 제약은 M5-a에서 refund 원장(+트리거)으로 이전됐다 — RefundConstraintsIT 참조.
+	private int insertPayment(String idempotencyKey, long paid, String status) {
 		return jdbc.sql("""
-				INSERT INTO payment (order_id, idempotency_key, paid_amount, refunded_amount, status)
-				VALUES (1, :key, :paid, :refunded, :status)
-				""").param("key", idempotencyKey).param("paid", paid).param("refunded", refunded)
-				.param("status", status).update();
+				INSERT INTO payment (order_id, idempotency_key, paid_amount, status)
+				VALUES (1, :key, :paid, :status)
+				""").param("key", idempotencyKey).param("paid", paid).param("status", status).update();
 	}
 
 	@Test
 	@DisplayName("정상 결제는 INSERT된다")
 	void validPaymentInserts() {
-		assertThat(insertPayment("idem-1", 10_000, 0, "PAID")).isEqualTo(1);
+		assertThat(insertPayment("idem-1", 10_000, "PAID")).isEqualTo(1);
 	}
 
 	@Test
 	@DisplayName("음수 결제금액은 CHECK 제약으로 거부된다")
 	void negativeAmountRejected() {
-		assertThatThrownBy(() -> insertPayment("idem-2", -1, 0, "PAID"))
-				.isInstanceOf(DataIntegrityViolationException.class);
-	}
-
-	@Test
-	@DisplayName("환불액이 결제액을 초과하면 CHECK 제약으로 거부된다")
-	void refundExceedingPaidRejected() {
-		assertThatThrownBy(() -> insertPayment("idem-3", 10_000, 10_001, "PAID"))
-				.isInstanceOf(DataIntegrityViolationException.class);
-	}
-
-	@Test
-	@DisplayName("미결제(PENDING) 상태에 환불액이 있으면 CHECK 제약으로 거부된다")
-	void refundOnNonPaidRejected() {
-		assertThatThrownBy(() -> insertPayment("idem-4", 10_000, 1_000, "PENDING"))
+		assertThatThrownBy(() -> insertPayment("idem-2", -1, "PAID"))
 				.isInstanceOf(DataIntegrityViolationException.class);
 	}
 
 	@Test
 	@DisplayName("정의되지 않은 결제 상태는 CHECK 제약으로 거부된다")
 	void invalidStatusRejected() {
-		assertThatThrownBy(() -> insertPayment("idem-5", 10_000, 0, "INVALID"))
+		assertThatThrownBy(() -> insertPayment("idem-5", 10_000, "INVALID"))
 				.isInstanceOf(DataIntegrityViolationException.class);
 	}
 
@@ -92,7 +78,7 @@ class PaymentConstraintsIT {
 			pool.submit(() -> {
 				try {
 					start.await(); // 모든 스레드 동시 출발
-					insertPayment("idem-race", 10_000, 0, "PAID");
+					insertPayment("idem-race", 10_000, "PAID");
 					success.incrementAndGet();
 				} catch (DataIntegrityViolationException e) {
 					conflicts.incrementAndGet(); // UNIQUE 충돌 = 기대된 실패

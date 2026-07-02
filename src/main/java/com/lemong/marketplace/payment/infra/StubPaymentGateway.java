@@ -13,4 +13,10 @@ class StubPaymentGateway implements PaymentGateway {
 	public PgApproval confirm(String idempotencyKey, long amount) {
 		return new PgApproval("stub-" + idempotencyKey, amount);
 	}
+
+	// 환불도 멱등키 기반 결정적 응답 — 같은 환불 토큰 재시도에 PG가 중복 환불하지 않는 end-to-end 멱등을 흉내낸다.
+	@Override
+	public PgRefund refund(String idempotencyKey, long amount) {
+		return new PgRefund("stub-refund-" + idempotencyKey, amount);
+	}
 }
