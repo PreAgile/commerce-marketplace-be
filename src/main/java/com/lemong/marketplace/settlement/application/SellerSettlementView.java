@@ -13,6 +13,12 @@ import java.util.List;
  */
 public record SellerSettlementView(long sellerId, List<CycleNet> cycles, long pendingNetMinor, long totalNetMinor) {
 
+	// 읽기 모델은 불변이어야 한다. JdbcClient가 준 가변 ArrayList를 그대로 쥐면 밖에서 뒤집힐 수 있다(ADR-012
+	// CartSnapshot 선례).
+	public SellerSettlementView {
+		cycles = List.copyOf(cycles);
+	}
+
 	public record CycleNet(long cycleId, CycleType cycleType, OffsetDateTime periodStart, OffsetDateTime periodEnd,
 			String status, int lineCount, long netMinor) {
 	}

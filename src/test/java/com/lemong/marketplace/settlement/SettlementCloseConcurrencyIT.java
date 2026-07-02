@@ -117,4 +117,55 @@ class SettlementCloseConcurrencyIT {
 				.param("s", SELLER).query(Long.class).single();
 		assertThat(net).isEqualTo(900L); // 마감이 금액을 변조하지 않는다
 	}
+
+	@Test
+	@DisplayName("서로 다른 유형(weekly·express)이 같은 미배정 풀을 동시에 마감해도 라인 0개짜리 고스트 사이클이 안 남는다")
+	void concurrentCrossTypeCloseLeavesNoGhostCycle() throws InterruptedException {
+		// weekly·express는 cycle_type이 달라 EXCLUDE가 서로를 막지 않는다. 후보 조회 시점엔 둘 다 미배정 라인을 보지만
+		// 한쪽이 라인을 선점하면 다른 쪽 UPDATE는 0건 — 가드가 없으면 방금 만든 사이클이 라인 0개로 봉인돼 남는다(TOCTOU).
+		insertLine("SALE", 1000);
+		insertLine("COMMISSION", -100);
+
+		CountDownLatch start = new CountDownLatch(1);
+		CountDownLatch done = new CountDownLatch(2);
+		AtomicReference<Throwable> unexpected = new AtomicReference<>();
+
+		try (ExecutorService pool = Executors.newFixedThreadPool(2)) {
+			for (CycleType type : new CycleType[]{CycleType.WEEKLY, CycleType.EXPRESS}) {
+				pool.submit(() -> {
+					try {
+						start.await();
+						close.run(type, WINDOW_START, WINDOW_END);
+					} catch (DataIntegrityViolationException e) {
+						// 같은 유형 아님 → EXCLUDE는 안 뜬다. 떠도 회귀는 아래 불변식이 잡는다.
+					} catch (InterruptedException e) {
+						Thread.currentThread().interrupt();
+						unexpected.compareAndSet(null, e);
+					} catch (Throwable e) {
+						unexpected.compareAndSet(null, e);
+					} finally {
+						done.countDown();
+					}
+				});
+			}
+			start.countDown();
+			done.await();
+		}
+
+		assertThat(unexpected.get()).isNull();
+		// 핵심 불변식: 라인이 귀속된 사이클만 남는다 — 어떤 CLOSED 사이클도 라인 0개가 아니다.
+		Long ghostCycles = jdbc.sql("""
+				SELECT count(*) FROM settlement_cycle c
+				WHERE NOT EXISTS (SELECT 1 FROM settlement_line l WHERE l.cycle_id = c.cycle_id)
+				""").query(Long.class).single();
+		assertThat(ghostCycles).as("라인 0개짜리 고스트 사이클이 남으면 안 된다").isZero();
+		// 라인은 정확히 한 사이클에만 귀속(이중 집계 0), 미배정 0.
+		Long distinctCycleIds = jdbc
+				.sql("SELECT count(DISTINCT cycle_id) FROM settlement_line WHERE cycle_id IS NOT NULL")
+				.query(Long.class).single();
+		assertThat(distinctCycleIds).isEqualTo(1L);
+		Long unassigned = jdbc.sql("SELECT count(*) FROM settlement_line WHERE cycle_id IS NULL").query(Long.class)
+				.single();
+		assertThat(unassigned).isZero();
+	}
 }

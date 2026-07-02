@@ -84,6 +84,14 @@ public class SettlementCloseService {
 					WHERE seller_id = :s AND cycle_id IS NULL AND eligible_at < :end
 					""").param("cid", cycleId).param("s", sellerId).param("end", periodEnd).update();
 
+			if (assigned == 0) {
+				// 후보 조회와 UPDATE 사이(TOCTOU)에 다른 유형·창 마감이 이 셀러의 라인을 선점하면 UPDATE가 0건이다.
+				// 방금 만든 사이클을 지워 라인 0개짜리 CLOSED "고스트"가 (seller,type,기간)을 영구 봉인하는 걸 막는다.
+				// settlement_cycle은 원장이 아니라 기간 메타라 같은 TX 내 DELETE가 안전(잔액 원장 UPDATE 금지와 무관).
+				jdbc.sql("DELETE FROM settlement_cycle WHERE cycle_id = :cid").param("cid", cycleId).update();
+				continue;
+			}
+
 			long net = jdbc.sql("SELECT COALESCE(SUM(amount_minor), 0) FROM settlement_line WHERE cycle_id = :cid")
 					.param("cid", cycleId).query(Long.class).single();
 			summaries.add(new CycleSummary(sellerId, cycleId, assigned, net));
